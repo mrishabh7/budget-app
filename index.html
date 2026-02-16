@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budget Planner - Personal Finance</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">💰 Budget Planner</h1>
+                <div class="month-selector">
+                    <select id="monthSelect">
+                        <option value="01">January</option>
+                        <option value="02">February</option>
+                        <option value="03">March</option>
+                        <option value="04">April</option>
+                        <option value="05">May</option>
+                        <option value="06">June</option>
+                        <option value="07">July</option>
+                        <option value="08">August</option>
+                        <option value="09">September</option>
+                        <option value="10">October</option>
+                        <option value="11">November</option>
+                        <option value="12">December</option>
+                    </select>
+                    <select id="yearSelect"></select>
+                    <button id="loadDataBtn" class="btn btn-secondary">Load</button>
+                    <button id="saveDataBtn" class="btn btn-primary">Save</button>
+                    <button id="settingsBtn" class="btn btn-secondary btn-icon" title="Customize Categories">⚙️</button>
+                    <button id="themeToggle" class="theme-toggle" title="Toggle Theme">🌙</button>
+                </div>
+                <!-- Cloud Sync UI -->
+                <div class="sync-container">
+                    <button id="syncBtn" class="btn btn-sync" title="Cloud Sync">☁️ Sign In</button>
+                    <span id="syncStatus" class="sync-status offline">Offline</span>
+                    <span id="userInfo" class="user-info"></span>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Left Column: Inputs -->
+            <div class="input-column">
+                <!-- Income Section -->
+                <section class="card income-section">
+                    <h2 class="section-title">
+                        <span class="icon">💵</span>
+                        Monthly Income
+                    </h2>
+                    <div class="income-inputs-grid">
+                        <div class="income-input-group">
+                            <label for="myIncome">Your Income</label>
+                            <div class="input-wrapper">
+                                <span class="currency">₹</span>
+                                <input type="number" id="myIncome" placeholder="0" min="0">
+                            </div>
+                        </div>
+                        <div class="income-input-group">
+                            <label for="partnerIncome">Partner's Income</label>
+                            <div class="input-wrapper">
+                                <span class="currency">₹</span>
+                                <input type="number" id="partnerIncome" placeholder="0" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="income-total">
+                        <span class="income-total-label">Total Household Income:</span>
+                        <span class="income-total-value" id="totalIncomeDisplay">₹0</span>
+                    </div>
+                </section>
+
+                <!-- Essentials Section -->
+                <section class="card category-section" data-category="essentials">
+                    <div class="section-header" onclick="toggleSection('essentials')">
+                        <h2 class="section-title">
+                            <span class="icon">🏠</span>
+                            Essentials
+                        </h2>
+                        <div class="section-total">
+                            <span class="total-label">Total:</span>
+                            <span class="total-value" id="essentialsTotal">₹0</span>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                    </div>
+                    <div class="section-content" id="essentials-content">
+                        <div class="input-grid" id="essentials-inputs">
+                            <!-- Generated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- EMIs Section -->
+                <section class="card category-section" data-category="emis">
+                    <div class="section-header" onclick="toggleSection('emis')">
+                        <h2 class="section-title">
+                            <span class="icon">🏦</span>
+                            EMIs
+                        </h2>
+                        <div class="section-total">
+                            <span class="total-label">Total:</span>
+                            <span class="total-value" id="emisTotal">₹0</span>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                    </div>
+                    <div class="section-content" id="emis-content">
+                        <div class="input-grid" id="emis-inputs">
+                            <!-- Generated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Non-Essentials Section -->
+                <section class="card category-section" data-category="nonEssentials">
+                    <div class="section-header" onclick="toggleSection('nonEssentials')">
+                        <h2 class="section-title">
+                            <span class="icon">🛍️</span>
+                            Non-Essentials
+                        </h2>
+                        <div class="section-total">
+                            <span class="total-label">Total:</span>
+                            <span class="total-value" id="nonEssentialsTotal">₹0</span>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                    </div>
+                    <div class="section-content" id="nonEssentials-content">
+                        <div class="input-grid" id="nonEssentials-inputs">
+                            <!-- Generated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Investments Section -->
+                <section class="card category-section" data-category="investments">
+                    <div class="section-header" onclick="toggleSection('investments')">
+                        <h2 class="section-title">
+                            <span class="icon">📈</span>
+                            Investments
+                        </h2>
+                        <div class="section-total">
+                            <span class="total-label">Total:</span>
+                            <span class="total-value" id="investmentsTotal">₹0</span>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                    </div>
+                    <div class="section-content" id="investments-content">
+                        <div class="input-grid" id="investments-inputs">
+                            <!-- Generated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Assets Section -->
+                <section class="card category-section" data-category="assets">
+                    <div class="section-header" onclick="toggleSection('assets')">
+                        <h2 class="section-title">
+                            <span class="icon">🏆</span>
+                            Assets
+                        </h2>
+                        <div class="section-total">
+                            <span class="total-label">Total:</span>
+                            <span class="total-value" id="assetsTotal">₹0</span>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                    </div>
+                    <div class="section-content" id="assets-content">
+                        <div class="input-grid" id="assets-inputs">
+                            <!-- Generated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Liabilities Section -->
+                <section class="card category-section" data-category="liabilities">
+                    <div class="section-header" onclick="toggleSection('liabilities')">
+                        <h2 class="section-title">
+                            <span class="icon">💳</span>
+                            Liabilities
+                        </h2>
+                        <div class="section-total">
+                            <span class="total-label">Total:</span>
+                            <span class="total-value" id="liabilitiesTotal">₹0</span>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                    </div>
+                    <div class="section-content" id="liabilities-content">
+                        <div class="input-grid" id="liabilities-inputs">
+                            <!-- Generated by JS -->
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Column: Dashboard -->
+            <div class="dashboard-column">
+                <!-- Summary Cards -->
+                <section class="card summary-section">
+                    <h2 class="section-title">
+                        <span class="icon">📊</span>
+                        Monthly Summary
+                    </h2>
+                    <div class="summary-grid">
+                        <div class="summary-card income-card">
+                            <span class="summary-label">Income</span>
+                            <span class="summary-value" id="summaryIncome">₹0</span>
+                        </div>
+                        <div class="summary-card expenses-card">
+                            <span class="summary-label">Total Expenses</span>
+                            <span class="summary-value" id="summaryExpenses">₹0</span>
+                        </div>
+                        <div class="summary-card savings-card">
+                            <span class="summary-label">Savings</span>
+                            <span class="summary-value" id="summarySavings">₹0</span>
+                        </div>
+                        <div class="summary-card rate-card">
+                            <span class="summary-label">Savings Rate</span>
+                            <span class="summary-value" id="summarySavingsRate">0%</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Expense Chart -->
+                <section class="card chart-section">
+                    <h2 class="section-title">
+                        <span class="icon">📈</span>
+                        Expense Breakdown
+                    </h2>
+                    <div class="chart-container">
+                        <div class="donut-chart" id="expenseChart">
+                            <div class="chart-center">
+                                <span class="chart-total-label">Total</span>
+                                <span class="chart-total-value" id="chartTotal">₹0</span>
+                            </div>
+                        </div>
+                        <div class="chart-legend" id="chartLegend">
+                            <!-- Generated by JS -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Health Indicators -->
+                <section class="card health-section">
+                    <h2 class="section-title">
+                        <span class="icon">🎯</span>
+                        Budget Health
+                    </h2>
+                    <div class="health-indicators" id="healthIndicators">
+                        <div class="health-item" id="health-essentials">
+                            <div class="health-header">
+                                <span class="health-label">Essentials</span>
+                                <span class="health-percentage">0%</span>
+                            </div>
+                            <div class="health-bar">
+                                <div class="health-progress"></div>
+                            </div>
+                            <span class="health-status">—</span>
+                        </div>
+                        <div class="health-item" id="health-emis">
+                            <div class="health-header">
+                                <span class="health-label">EMIs</span>
+                                <span class="health-percentage">0%</span>
+                            </div>
+                            <div class="health-bar">
+                                <div class="health-progress"></div>
+                            </div>
+                            <span class="health-status">—</span>
+                        </div>
+                        <div class="health-item" id="health-nonEssentials">
+                            <div class="health-header">
+                                <span class="health-label">Non-Essentials</span>
+                                <span class="health-percentage">0%</span>
+                            </div>
+                            <div class="health-bar">
+                                <div class="health-progress"></div>
+                            </div>
+                            <span class="health-status">—</span>
+                        </div>
+                        <div class="health-item" id="health-savings">
+                            <div class="health-header">
+                                <span class="health-label">Savings/Investments</span>
+                                <span class="health-percentage">0%</span>
+                            </div>
+                            <div class="health-bar">
+                                <div class="health-progress"></div>
+                            </div>
+                            <span class="health-status">—</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Net Worth -->
+                <section class="card networth-section">
+                    <h2 class="section-title">
+                        <span class="icon">💎</span>
+                        Net Worth
+                    </h2>
+                    <div class="networth-grid">
+                        <div class="networth-item assets-item">
+                            <span class="networth-label">Total Assets</span>
+                            <span class="networth-value" id="networthAssets">₹0</span>
+                        </div>
+                        <div class="networth-item liabilities-item">
+                            <span class="networth-label">Total Liabilities</span>
+                            <span class="networth-value" id="networthLiabilities">₹0</span>
+                        </div>
+                        <div class="networth-item networth-total-item">
+                            <span class="networth-label">Net Worth</span>
+                            <span class="networth-value" id="networthTotal">₹0</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- History -->
+                <section class="card history-section">
+                    <h2 class="section-title">
+                        <span class="icon">📅</span>
+                        Saved Months
+                    </h2>
+                    <div class="history-list" id="historyList">
+                        <p class="no-data">No saved data yet</p>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">
+        <span class="toast-message"></span>
+    </div>
+
+    <!-- Category Manager Modal -->
+    <div class="modal-overlay" id="categoryModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">⚙️ Customize Categories</h3>
+                <button class="modal-close" onclick="closeCategoryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tabs" id="categoryTabs">
+                    <!-- Generated by JS -->
+                </div>
+                <div id="categoryManagerContent">
+                    <!-- Generated by JS -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCategoryModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveCategories()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Encryption Password Modal -->
+    <div class="modal-overlay" id="encryptionModal">
+        <div class="modal modal-small">
+            <div class="modal-header">
+                <h3 class="modal-title">🔐 Encryption Password</h3>
+                <button class="modal-close" onclick="CloudSync.closePasswordModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="encryption-info">Your data is encrypted with this password before syncing to the cloud. Use
+                    the same password on all devices.</p>
+                <div class="password-input-group">
+                    <label for="encryptionPassword">Password (min 6 characters)</label>
+                    <input type="password" id="encryptionPassword" placeholder="Enter encryption password"
+                        minlength="6">
+                </div>
+                <div class="password-hint">
+                    <strong>⚠️ Important:</strong> If you forget this password, your cloud data cannot be recovered.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="CloudSync.closePasswordModal()">Cancel</button>
+                <button class="btn btn-primary"
+                    onclick="CloudSync.setPassword(document.getElementById('encryptionPassword').value, true)">Unlock
+                    Sync</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="data.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="crypto.js"></script>
+    <script src="sync.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
