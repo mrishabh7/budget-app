@@ -138,7 +138,12 @@ const CloudSync = {
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 if (key.startsWith(STORAGE_PREFIX)) {
-                    allData[key] = JSON.parse(localStorage.getItem(key));
+                    const raw = localStorage.getItem(key);
+                    try {
+                        allData[key] = JSON.parse(raw);
+                    } catch (e) {
+                        allData[key] = raw;
+                    }
                 }
             }
 
@@ -190,11 +195,8 @@ const CloudSync = {
 
             // Restore to localStorage
             Object.keys(decryptedData).forEach(key => {
-                if (key === 'budget_custom_categories') {
-                    localStorage.setItem(key, JSON.stringify(decryptedData[key]));
-                } else {
-                    localStorage.setItem(key, JSON.stringify(decryptedData[key]));
-                }
+                const value = decryptedData[key];
+                localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
             });
 
             this.lastSyncTime = new Date();
