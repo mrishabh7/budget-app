@@ -650,3 +650,312 @@ function loadCustomCategories() {
 
 // Call loadCustomCategories before generating input fields
 loadCustomCategories();
+
+// ===== CSV Import =====
+const CSV_MAPPING_KEY = 'budget_csv_mapping';
+let csvImportGroups = {};
+let csvRefKeys = [];
+let csvCurrentMappings = {};
+
+function parseCSVLine(line) {
+    const result = [];
+    let inQuotes = false;
+    let current = '';
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+            result.push(current);
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+    result.push(current);
+    return result;
+}
+
+function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) return null;
+
+    const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+    const amountIdx = headers.indexOf('amount');
+    const refIdx = headers.indexOf('ref');
+
+    if (amountIdx === -1 || refIdx === -1) return null;
+
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+        const cols = parseCSVLine(lines[i]);
+        if (!cols || cols.length <= Math.max(amountIdx, refIdx)) continue;
+
+        const amount = parseFloat(cols[amountIdx]);
+        const ref = (cols[refIdx] || '').trim();
+
+        if (isNaN(amount) || amount <= 0 || !ref) continue;
+
+        rows.push({ amount, ref });
+    }
+    return rows;
+}
+
+function normalizeRef(ref) {
+    return ref.replace(/\p{Extended_Pictographic}/gu, '').trim();
+}
+
+function groupByRef(rows) {
+    const groups = {};
+    rows.forEach(({ amount, ref }) => {
+        const normalized = normalizeRef(ref);
+        if (!normalized) return;
+        if (!groups[normalized]) {
+            groups[normalized] = { total: 0, count: 0 };
+        }
+        groups[normalized].total += amount;
+        groups[normalized].count++;
+    });
+    return groups;
+}
+
+function loadCsvMapping() {
+    try {
+        return JSON.parse(localStorage.getItem(CSV_MAPPING_KEY) || '{}');
+    } catch { return {}; }
+}
+
+function saveCsvMapping(mapping) {
+    localStorage.setItem(CSV_MAPPING_KEY, JSON.stringify(mapping));
+}
+
+function buildCategoryOptionsHTML(selectedValue) {
+    const categoryOrder = ['essentials', 'emis', 'nonEssentials', 'investments', 'assets', 'liabilities'];
+    let html = `<option value="skip"${selectedValue === 'skip' ? ' selected' : ''}>-- Skip (don't import) --</option>`;
+    html += `<option value="new"${selectedValue === 'new' ? ' selected' : ''}>➕ Add as new item...</option>`;
+    html += '<option disabled>──────────────────</option>';
+
+    categoryOrder.forEach(catKey => {
+        const cat = CATEGORIES[catKey];
+        html += `<option disabled>── ${cat.icon || ''} ${cat.label} ──</option>`;
+        Object.keys(cat.items).forEach(itemKey => {
+            const value = `${catKey}.${itemKey}`;
+            const selected = selectedValue === value ? ' selected' : '';
+            html += `<option value="${value}"${selected}>&nbsp;&nbsp;${cat.items[itemKey].label}</option>`;
+        });
+    });
+    return html;
+}
+
+function renderCsvRow(idx, normalizedRef, { total, count }, savedValue, isNew) {
+    let selectVal = savedValue || 'skip';
+    let newCategoryKey = 'essentials';
+    let newLabel = normalizedRef;
+
+    if (selectVal.startsWith('new:')) {
+        const parts = selectVal.split(':');
+        selectVal = 'new';
+        newCategoryKey = parts[1] || 'essentials';
+        newLabel = parts.slice(2).join(':') || normalizedRef;
+    }
+
+    const newFormDisplay = selectVal === 'new' ? '' : 'display:none';
+    const rowClass = isNew ? 'csv-mapping-row csv-row-new' : 'csv-mapping-row';
+
+    const catOptions = Object.keys(CATEGORIES).map(k =>
+        `<option value="${k}"${k === newCategoryKey ? ' selected' : ''}>${CATEGORIES[k].label}</option>`
+    ).join('');
+
+    return `
+        <div class="${rowClass}">
+            <div class="csv-ref-info">
+                <span class="csv-ref-name">${normalizedRef}</span>
+                <span class="csv-ref-meta">${formatCurrency(total)} &middot; ${count} txn${count > 1 ? 's' : ''}</span>
+            </div>
+            <div class="csv-ref-mapping">
+                <select id="csv-map-${idx}" onchange="onCsvMappingChange(${idx}, this.value)" class="csv-mapping-select">
+                    ${buildCategoryOptionsHTML(selectVal)}
+                </select>
+                <div class="csv-new-item-form" id="csv-new-form-${idx}" style="${newFormDisplay}">
+                    <select class="csv-new-cat-select" id="csv-new-cat-${idx}"
+                            onchange="onCsvNewCatChange(${idx})">${catOptions}</select>
+                    <input type="text" class="csv-new-label-input" id="csv-new-label-${idx}"
+                           value="${newLabel}"
+                           placeholder="Item label"
+                           oninput="onCsvNewLabelChange(${idx}, this.value)">
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderCsvMappingRows() {
+    const savedMapping = loadCsvMapping();
+    const body = document.getElementById('csvModalBody');
+    const groups = csvImportGroups;
+
+    csvRefKeys = Object.keys(groups);
+    csvCurrentMappings = {};
+    csvRefKeys.forEach(k => {
+        csvCurrentMappings[k] = savedMapping[k] || 'skip';
+    });
+
+    const unmapped = csvRefKeys.filter(k => !savedMapping[k]);
+    const mapped = csvRefKeys.filter(k => !!savedMapping[k]);
+
+    let html = `<p class="csv-summary">Found <strong>${csvRefKeys.length}</strong> expense ${csvRefKeys.length === 1 ? 'category' : 'categories'} in your CSV. Map each to a budget field.</p>`;
+
+    if (unmapped.length > 0) {
+        html += `<div class="csv-section-label csv-unmapped-label">⚠️ New categories (not in saved mapping)</div>`;
+        unmapped.forEach(key => {
+            html += renderCsvRow(csvRefKeys.indexOf(key), key, groups[key], 'skip', true);
+        });
+    }
+
+    if (mapped.length > 0) {
+        html += `<div class="csv-section-label">Previously mapped</div>`;
+        mapped.forEach(key => {
+            html += renderCsvRow(csvRefKeys.indexOf(key), key, groups[key], savedMapping[key], false);
+        });
+    }
+
+    body.innerHTML = html;
+}
+
+function onCsvMappingChange(idx, value) {
+    const normalizedRef = csvRefKeys[idx];
+    const newForm = document.getElementById(`csv-new-form-${idx}`);
+
+    if (value === 'new') {
+        if (newForm) newForm.style.display = 'flex';
+        const catSelect = document.getElementById(`csv-new-cat-${idx}`);
+        const labelInput = document.getElementById(`csv-new-label-${idx}`);
+        const catKey = catSelect ? catSelect.value : 'essentials';
+        const label = labelInput ? labelInput.value : normalizedRef;
+        csvCurrentMappings[normalizedRef] = `new:${catKey}:${label}`;
+    } else {
+        if (newForm) newForm.style.display = 'none';
+        csvCurrentMappings[normalizedRef] = value;
+    }
+}
+
+function onCsvNewCatChange(idx) {
+    const normalizedRef = csvRefKeys[idx];
+    const catSelect = document.getElementById(`csv-new-cat-${idx}`);
+    const labelInput = document.getElementById(`csv-new-label-${idx}`);
+    const catKey = catSelect ? catSelect.value : 'essentials';
+    const label = labelInput ? labelInput.value : normalizedRef;
+    csvCurrentMappings[normalizedRef] = `new:${catKey}:${label}`;
+}
+
+function onCsvNewLabelChange(idx, label) {
+    const normalizedRef = csvRefKeys[idx];
+    const catSelect = document.getElementById(`csv-new-cat-${idx}`);
+    const catKey = catSelect ? catSelect.value : 'essentials';
+    csvCurrentMappings[normalizedRef] = `new:${catKey}:${label}`;
+}
+
+function handleCsvFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const rows = parseCSV(e.target.result);
+        if (!rows) {
+            showToast('Invalid CSV: missing Amount or Ref columns');
+            return;
+        }
+        if (rows.length === 0) {
+            showToast('No expense data found in CSV');
+            return;
+        }
+        csvImportGroups = groupByRef(rows);
+        renderCsvMappingRows();
+        document.getElementById('csvImportModal').classList.add('show');
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+function closeCsvModal() {
+    document.getElementById('csvImportModal').classList.remove('show');
+    csvImportGroups = {};
+    csvRefKeys = [];
+    csvCurrentMappings = {};
+}
+
+function applyCsvImport() {
+    const resolvedMappings = {};
+    const mappingToSave = {};
+    let addedNewItems = false;
+
+    // Step 1: resolve new: mappings by creating items in CATEGORIES
+    Object.entries(csvCurrentMappings).forEach(([normalizedRef, mapping]) => {
+        if (!mapping || mapping === 'skip') {
+            resolvedMappings[normalizedRef] = 'skip';
+            return;
+        }
+
+        if (mapping.startsWith('new:')) {
+            const parts = mapping.split(':');
+            const catKey = parts[1];
+            const label = parts.slice(2).join(':') || normalizedRef;
+
+            if (!CATEGORIES[catKey]) {
+                resolvedMappings[normalizedRef] = 'skip';
+                return;
+            }
+
+            const newKey = `custom_${Date.now()}_${Math.floor(Math.random() * 9999)}`;
+            CATEGORIES[catKey].items[newKey] = { label, default: 0 };
+            if (!currentData[catKey]) currentData[catKey] = {};
+            currentData[catKey][newKey] = 0;
+
+            const fullPath = `${catKey}.${newKey}`;
+            resolvedMappings[normalizedRef] = fullPath;
+            mappingToSave[normalizedRef] = fullPath;
+            addedNewItems = true;
+        } else {
+            resolvedMappings[normalizedRef] = mapping;
+            mappingToSave[normalizedRef] = mapping;
+        }
+    });
+
+    // Step 2: if new items were added, persist categories and regenerate fields
+    if (addedNewItems) {
+        localStorage.setItem('budget_custom_categories', JSON.stringify(CATEGORIES));
+        generateInputFields();
+        attachCategoryInputListeners();
+    }
+
+    // Step 3: save mapping for future uploads
+    saveCsvMapping(mappingToSave);
+
+    // Step 4: apply amounts to currentData and form inputs
+    let importedCount = 0;
+    Object.entries(resolvedMappings).forEach(([normalizedRef, mapping]) => {
+        if (mapping === 'skip') return;
+
+        const [catKey, itemKey] = mapping.split('.');
+        if (!catKey || !itemKey || !currentData[catKey]) return;
+
+        const amount = csvImportGroups[normalizedRef]?.total || 0;
+        currentData[catKey][itemKey] = amount;
+
+        const input = document.getElementById(`${catKey}_${itemKey}`);
+        if (input) input.value = amount || '';
+
+        importedCount++;
+    });
+
+    updateCalculations();
+    closeCsvModal();
+    showToast(`Imported ${importedCount} expense ${importedCount === 1 ? 'category' : 'categories'} from CSV`);
+}
+
+// Wire up CSV import button and file input
+document.getElementById('importCsvBtn').addEventListener('click', () => {
+    document.getElementById('csvFileInput').click();
+});
+document.getElementById('csvFileInput').addEventListener('change', handleCsvFileSelect);
