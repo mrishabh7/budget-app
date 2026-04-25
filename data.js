@@ -110,7 +110,8 @@ function createEmptyBudget() {
         nonEssentials: {},
         investments: {},
         assets: {},
-        liabilities: {}
+        liabilities: {},
+        notes: {}
     };
 
     // Initialize all items to 0
@@ -118,8 +119,22 @@ function createEmptyBudget() {
         Object.keys(CATEGORIES[category].items).forEach(item => {
             data[category][item] = 0;
         });
+        data.notes[category] = {};
     });
 
+    return data;
+}
+
+// Ensure budget data has the notes shape (for backward compat with old saved data)
+function ensureNotesShape(data) {
+    if (!data.notes || typeof data.notes !== 'object') {
+        data.notes = {};
+    }
+    Object.keys(CATEGORIES).forEach(category => {
+        if (!data.notes[category] || typeof data.notes[category] !== 'object') {
+            data.notes[category] = {};
+        }
+    });
     return data;
 }
 
@@ -139,7 +154,9 @@ function saveBudgetData(year, month, data) {
 function loadBudgetData(year, month) {
     const key = getStorageKey(year, month);
     const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : null;
+    if (!data) return null;
+    const parsed = JSON.parse(data);
+    return ensureNotesShape(parsed);
 }
 
 // Get all saved months
