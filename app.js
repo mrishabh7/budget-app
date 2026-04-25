@@ -49,17 +49,22 @@ function generateInputFields() {
 
         Object.keys(category.items).forEach(itemKey => {
             const item = category.items[itemKey];
+            const hasNote = !!(currentData.notes && currentData.notes[categoryKey] && currentData.notes[categoryKey][itemKey]);
             const inputItem = document.createElement('div');
             inputItem.className = 'input-item';
             inputItem.innerHTML = `
-                <label for="${categoryKey}_${itemKey}">${item.label}</label>
+                <label class="item-label" data-category="${categoryKey}" data-item="${itemKey}"
+                       role="button" tabindex="0" title="Click to add a note">
+                    <span class="item-label-text">${item.label}</span>
+                    ${hasNote ? '<span class="note-indicator" aria-label="Has note">📝</span>' : ''}
+                </label>
                 <div class="input-wrapper">
                     <span class="currency">₹</span>
-                    <input type="number" 
-                           id="${categoryKey}_${itemKey}" 
-                           data-category="${categoryKey}" 
+                    <input type="number"
+                           id="${categoryKey}_${itemKey}"
+                           data-category="${categoryKey}"
                            data-item="${itemKey}"
-                           placeholder="0" 
+                           placeholder="0"
                            min="0"
                            value="${currentData[categoryKey][itemKey] || 0}">
                 </div>
@@ -67,6 +72,127 @@ function generateInputFields() {
             container.appendChild(inputItem);
         });
     });
+}
+
+// ===== Note Indicator =====
+function refreshNoteIndicator(category, item) {
+    const label = document.querySelector(`.item-label[data-category="${category}"][data-item="${item}"]`);
+    if (!label) return;
+    const existing = label.querySelector('.note-indicator');
+    const hasNote = !!(currentData.notes && currentData.notes[category] && currentData.notes[category][item]);
+    if (hasNote && !existing) {
+        const span = document.createElement('span');
+        span.className = 'note-indicator';
+        span.setAttribute('aria-label', 'Has note');
+        span.textContent = '📝';
+        label.appendChild(span);
+    } else if (!hasNote && existing) {
+        existing.remove();
+    }
+}
+
+// ===== Note Popover =====
+let activeNotePopover = null;
+
+function closeNotePopover() {
+    if (!activeNotePopover) return;
+    document.removeEventListener('mousedown', handlePopoverOutsideClick, true);
+    document.removeEventListener('keydown', handlePopoverKeydown, true);
+    activeNotePopover.remove();
+    activeNotePopover = null;
+}
+
+function handlePopoverOutsideClick(e) {
+    if (activeNotePopover && !activeNotePopover.contains(e.target)) {
+        closeNotePopover();
+    }
+}
+
+function handlePopoverKeydown(e) {
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeNotePopover();
+    }
+}
+
+function openNotePopover(category, item, anchorEl) {
+    closeNotePopover();
+
+    if (!currentData.notes) currentData.notes = {};
+    if (!currentData.notes[category]) currentData.notes[category] = {};
+
+    const existingNote = currentData.notes[category][item] || '';
+    const itemLabel = (CATEGORIES[category] && CATEGORIES[category].items[item] && CATEGORIES[category].items[item].label) || item;
+
+    const popover = document.createElement('div');
+    popover.className = 'note-popover';
+    popover.innerHTML = `
+        <div class="note-popover-header">
+            <span class="note-popover-title">📝 Note for ${itemLabel}</span>
+            <button type="button" class="note-popover-close" aria-label="Close">✕</button>
+        </div>
+        <textarea class="note-popover-textarea"
+                  maxlength="500"
+                  placeholder="What was this for? (e.g. Haircut, gift for mom)"></textarea>
+        <div class="note-popover-actions">
+            <button type="button" class="note-popover-btn note-popover-clear">Clear</button>
+            <button type="button" class="note-popover-btn note-popover-save">Save</button>
+        </div>
+    `;
+    document.body.appendChild(popover);
+
+    const textarea = popover.querySelector('.note-popover-textarea');
+    textarea.value = existingNote;
+
+    // Position the popover near the anchor element
+    const rect = anchorEl.getBoundingClientRect();
+    const popRect = popover.getBoundingClientRect();
+    const margin = 8;
+    let top = window.scrollY + rect.bottom + margin;
+    let left = window.scrollX + rect.left;
+    if (left + popRect.width > window.scrollX + window.innerWidth - margin) {
+        left = window.scrollX + window.innerWidth - popRect.width - margin;
+    }
+    if (left < window.scrollX + margin) left = window.scrollX + margin;
+    popover.style.top = `${top}px`;
+    popover.style.left = `${left}px`;
+
+    activeNotePopover = popover;
+    setTimeout(() => textarea.focus(), 0);
+
+    const save = () => {
+        const value = textarea.value.trim();
+        if (value) {
+            currentData.notes[category][item] = value;
+        } else {
+            delete currentData.notes[category][item];
+        }
+        refreshNoteIndicator(category, item);
+        closeNotePopover();
+    };
+
+    const clear = () => {
+        textarea.value = '';
+        textarea.focus();
+    };
+
+    popover.querySelector('.note-popover-save').addEventListener('click', save);
+    popover.querySelector('.note-popover-clear').addEventListener('click', clear);
+    popover.querySelector('.note-popover-close').addEventListener('click', closeNotePopover);
+
+    // Save on Ctrl/Cmd + Enter
+    textarea.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            save();
+        }
+    });
+
+    // Defer outside click handler so the click that opened the popover doesn't immediately close it
+    setTimeout(() => {
+        document.addEventListener('mousedown', handlePopoverOutsideClick, true);
+        document.addEventListener('keydown', handlePopoverKeydown, true);
+    }, 0);
 }
 
 // ===== Attach Event Listeners =====
@@ -85,11 +211,36 @@ function attachEventListeners() {
         });
     });
 
+    // Note labels — delegated so it works for items added later
+    document.body.addEventListener('click', handleLabelClick);
+    document.body.addEventListener('keydown', handleLabelKeydown);
+
     // Save button
     saveBtn.addEventListener('click', saveCurrentData);
 
     // Load button
     loadBtn.addEventListener('click', loadSelectedMonth);
+}
+
+function handleLabelClick(e) {
+    const label = e.target.closest('.item-label');
+    if (!label) return;
+    const category = label.dataset.category;
+    const item = label.dataset.item;
+    if (!category || !item) return;
+    e.preventDefault();
+    openNotePopover(category, item, label);
+}
+
+function handleLabelKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const label = e.target.closest('.item-label');
+    if (!label) return;
+    const category = label.dataset.category;
+    const item = label.dataset.item;
+    if (!category || !item) return;
+    e.preventDefault();
+    openNotePopover(category, item, label);
 }
 
 // ===== Toggle Section =====
@@ -380,18 +531,22 @@ function tryLoadCurrentMonth() {
 
 // ===== Populate Form with Data =====
 function populateFormWithData() {
+    // Ensure notes shape exists (loaded data is already migrated, but be defensive)
+    if (typeof ensureNotesShape === 'function') ensureNotesShape(currentData);
+
     // Set income fields
     myIncomeInput.value = currentData.myIncome || '';
     partnerIncomeInput.value = currentData.partnerIncome || '';
     updateIncomeDisplay();
 
-    // Set category values
+    // Set category values and refresh note indicators
     Object.keys(CATEGORIES).forEach(categoryKey => {
         Object.keys(CATEGORIES[categoryKey].items).forEach(itemKey => {
             const input = document.getElementById(`${categoryKey}_${itemKey}`);
             if (input) {
                 input.value = currentData[categoryKey][itemKey] || '';
             }
+            refreshNoteIndicator(categoryKey, itemKey);
         });
     });
 }
@@ -601,9 +756,13 @@ function saveCategories() {
     attachCategoryInputListeners();
 
     // Update the data structure for any new items
+    if (typeof ensureNotesShape === 'function') ensureNotesShape(currentData);
     Object.keys(CATEGORIES).forEach(categoryKey => {
         if (!currentData[categoryKey]) {
             currentData[categoryKey] = {};
+        }
+        if (!currentData.notes[categoryKey]) {
+            currentData.notes[categoryKey] = {};
         }
         Object.keys(CATEGORIES[categoryKey].items).forEach(itemKey => {
             if (currentData[categoryKey][itemKey] === undefined) {
@@ -911,6 +1070,8 @@ function applyCsvImport() {
             CATEGORIES[catKey].items[newKey] = { label, default: 0 };
             if (!currentData[catKey]) currentData[catKey] = {};
             currentData[catKey][newKey] = 0;
+            if (!currentData.notes) currentData.notes = {};
+            if (!currentData.notes[catKey]) currentData.notes[catKey] = {};
 
             const fullPath = `${catKey}.${newKey}`;
             resolvedMappings[normalizedRef] = fullPath;
