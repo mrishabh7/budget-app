@@ -314,8 +314,8 @@ function updateCalculations() {
     // Update chart (Essentials slice includes EMIs for the 50:25:25 view)
     updateExpenseChart(essentialsTotal + emisTotal, nonEssentialsTotal, investmentsTotal, income);
 
-    // Update health indicators (pass savings as income - totalExpenses)
-    updateHealthIndicators(income, essentialsTotal, emisTotal, nonEssentialsTotal, income - totalExpenses, investmentsTotal);
+    // Update health indicators (Essentials includes EMIs; wealth = income - totalExpenses)
+    updateHealthIndicators(income, essentialsTotal + emisTotal, nonEssentialsTotal, income - totalExpenses);
 
     // Update net worth
     document.getElementById('networthAssets').textContent = formatCurrency(assetsTotal);
@@ -409,23 +409,45 @@ function updateExpenseChart(essentials, nonEssentials, investments, income) {
 
     if (note) {
         note.classList.remove('warning', 'celebrate');
-        if (expenseOverspend > 0) {
+        const rows = [];
+        let message = '';
+        if (usingIncomeDenominator) {
+            // Donut total = income; show how income was split.
+            rows.push({ label: 'This month\'s income', value: income });
+            rows.push({ label: 'Allocated (expenses + investments)', value: totalOutflow });
+            rows.push({ label: 'Residual cash', value: savings });
+        } else if (expenseOverspend > 0) {
+            // Real overspend.
+            rows.push({ label: 'Cash deployed (expenses + investments)', value: totalOutflow });
+            rows.push({ label: 'This month\'s income', value: income });
+            rows.push({ label: 'Drawn from past savings', value: expenseOverspend });
             note.classList.add('warning');
-            note.textContent = `⚠ Expenses exceed income by ${formatCurrencyCompact(expenseOverspend)} this month`;
-        } else if (pastSavingsDeployed > 0) {
-            note.classList.add('celebrate');
-            note.textContent = `💪 Investments include ${formatCurrencyCompact(pastSavingsDeployed)} deployed from past savings`;
+            message = `⚠ Expenses alone (${formatCurrencyCompact(expensesOnly)}) exceed income by ${formatCurrencyCompact(expensesOnly - income)}`;
         } else {
-            note.textContent = '';
+            // Aggressive investing — funded partly from past savings.
+            rows.push({ label: 'Cash deployed (expenses + investments)', value: totalOutflow });
+            rows.push({ label: 'This month\'s income', value: income });
+            rows.push({ label: 'Drawn from past savings', value: pastSavingsDeployed });
+            note.classList.add('celebrate');
+            message = `💪 Investing aggressively — past savings being put to work`;
         }
+        const rowsHtml = rows.map(r => `
+            <div class="chart-note-row">
+                <span class="chart-note-label">${r.label}</span>
+                <span class="chart-note-value">${formatCurrencyCompact(r.value)}</span>
+            </div>`).join('');
+        note.innerHTML = `<div class="chart-note-rows">${rowsHtml}</div>` +
+            (message ? `<div class="chart-note-message">${message}</div>` : '');
     }
 }
 
-// ===== Update Health Indicators =====
-function updateHealthIndicators(income, essentials, emis, nonEssentials, savings, investments) {
+// ===== Update Health Indicators (aligned with 50:25:25) =====
+// Caller passes the merged Essentials (essentials + EMIs) since EMIs belong
+// in the 50% needs bucket. `wealth` = income - merged expenses (the share of
+// income going to savings + investments combined).
+function updateHealthIndicators(income, essentialsInclEmis, nonEssentials, wealth) {
     if (income <= 0) {
-        // Reset all indicators
-        ['essentials', 'emis', 'nonEssentials', 'savings'].forEach(key => {
+        ['essentials', 'nonEssentials', 'savings'].forEach(key => {
             const el = document.getElementById(`health-${key}`);
             el.className = 'health-item';
             el.querySelector('.health-percentage').textContent = '0%';
@@ -435,21 +457,9 @@ function updateHealthIndicators(income, essentials, emis, nonEssentials, savings
         return;
     }
 
-    // Essentials (< 50% is ideal)
-    const essentialsPercent = (essentials / income) * 100;
-    updateHealthItem('essentials', essentialsPercent, HEALTH_THRESHOLDS.essentials, false, 'essentials');
-
-    // EMIs (< 20% is ideal)
-    const emisPercent = (emis / income) * 100;
-    updateHealthItem('emis', emisPercent, HEALTH_THRESHOLDS.emis, false, 'emis');
-
-    // Non-Essentials (< 15% is ideal)
-    const nonEssentialsPercent = (nonEssentials / income) * 100;
-    updateHealthItem('nonEssentials', nonEssentialsPercent, HEALTH_THRESHOLDS.nonEssentials, false, 'nonEssentials');
-
-    // Savings/Investments (> 20% is ideal, higher is better)
-    const savingsPercent = (savings / income) * 100;
-    updateHealthItem('savings', savingsPercent, HEALTH_THRESHOLDS.savings, true, 'savings');
+    updateHealthItem('essentials', (essentialsInclEmis / income) * 100, HEALTH_THRESHOLDS.essentials, false, 'essentials');
+    updateHealthItem('nonEssentials', (nonEssentials / income) * 100, HEALTH_THRESHOLDS.nonEssentials, false, 'nonEssentials');
+    updateHealthItem('savings', (wealth / income) * 100, HEALTH_THRESHOLDS.savings, true, 'savings');
 }
 
 function updateHealthItem(key, percentage, thresholds, inverted, category) {
@@ -478,8 +488,7 @@ function updateHealthItem(key, percentage, thresholds, inverted, category) {
     } else {
         // For expenses: lower is better
         const categoryLabels = {
-            essentials: 'Essentials',
-            emis: 'EMIs',
+            essentials: 'Essentials (incl. EMIs)',
             nonEssentials: 'Non-essentials'
         };
         const label = categoryLabels[category] || category;

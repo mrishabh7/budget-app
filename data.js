@@ -87,13 +87,11 @@ const CATEGORIES = {
     }
 };
 
-// Health thresholds (percentage of income)
-// Totals: 50% + 20% + 15% = 85% expenses max for green, leaving 15%+ for savings
+// Health thresholds (% of income) — aligned with the 50:25:25 principle
 const HEALTH_THRESHOLDS = {
-    essentials: { good: 50, warning: 60 },     // < 50% is good, up to 60% is warning
-    emis: { good: 20, warning: 30 },           // < 20% is good (lower than before)
-    nonEssentials: { good: 15, warning: 25 },  // < 15% is good (more realistic)
-    savings: { good: 20, warning: 10 }         // > 20% is good (including investments)
+    essentials: { good: 50, warning: 60 },     // incl. EMIs; <=50% per the 50:25:25 rule
+    nonEssentials: { good: 25, warning: 30 },  // <=25% per the rule
+    savings: { good: 25, warning: 15 }         // >=25% per the rule (incl. investments)
 };
 
 // Storage key prefix
