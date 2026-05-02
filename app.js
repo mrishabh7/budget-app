@@ -311,8 +311,8 @@ function updateCalculations() {
     document.getElementById('summarySavings').textContent = formatCurrency(income - totalExpenses);
     document.getElementById('summarySavingsRate').textContent = savingsRate.toFixed(1) + '%';
 
-    // Update chart
-    updateExpenseChart(essentialsTotal, emisTotal, nonEssentialsTotal, investmentsTotal);
+    // Update chart (Essentials slice includes EMIs for the 50:25:25 view)
+    updateExpenseChart(essentialsTotal + emisTotal, nonEssentialsTotal, investmentsTotal, income);
 
     // Update health indicators (pass savings as income - totalExpenses)
     updateHealthIndicators(income, essentialsTotal, emisTotal, nonEssentialsTotal, income - totalExpenses, investmentsTotal);
@@ -323,35 +323,32 @@ function updateCalculations() {
     document.getElementById('networthTotal').textContent = formatCurrency(netWorth);
 }
 
-// ===== Update Expense Chart =====
-function updateExpenseChart(essentials, emis, nonEssentials, investments) {
-    const total = essentials + emis + nonEssentials + investments;
+// ===== Update Income Allocation Chart =====
+// Slices are shown as % of Income to visualize the 50:25:25 principle:
+//   Essentials (incl. EMIs) ~50%, Non-Essentials ~25%, Investments + Savings ~25%.
+// Investments and Savings (residual cash) are kept separate so the user can tell
+// whether the wealth bucket is being deployed or sitting idle.
+function updateExpenseChart(essentials, nonEssentials, investments, income) {
+    const savings = Math.max(0, income - essentials - nonEssentials - investments);
     const chart = document.getElementById('expenseChart');
     const legend = document.getElementById('chartLegend');
 
-    // Calculate percentages
-    const essentialsPercent = total > 0 ? (essentials / total) * 100 : 0;
-    const emisPercent = total > 0 ? (emis / total) * 100 : 0;
-    const nonEssentialsPercent = total > 0 ? (nonEssentials / total) * 100 : 0;
-    const investmentsPercent = total > 0 ? (investments / total) * 100 : 0;
+    const essentialsPercent = income > 0 ? (essentials / income) * 100 : 0;
+    const nonEssentialsPercent = income > 0 ? (nonEssentials / income) * 100 : 0;
+    const investmentsPercent = income > 0 ? (investments / income) * 100 : 0;
+    const savingsPercent = income > 0 ? (savings / income) * 100 : 0;
 
-    // Calculate degrees for conic gradient
     const essentialsDeg = essentialsPercent * 3.6;
-    const emisDeg = emisPercent * 3.6;
     const nonEssentialsDeg = nonEssentialsPercent * 3.6;
     const investmentsDeg = investmentsPercent * 3.6;
+    const savingsDeg = savingsPercent * 3.6;
 
-    // Update chart gradient
     let gradientParts = [];
     let currentDeg = 0;
 
     if (essentials > 0) {
         gradientParts.push(`var(--color-essentials) ${currentDeg}deg ${currentDeg + essentialsDeg}deg`);
         currentDeg += essentialsDeg;
-    }
-    if (emis > 0) {
-        gradientParts.push(`var(--color-emis) ${currentDeg}deg ${currentDeg + emisDeg}deg`);
-        currentDeg += emisDeg;
     }
     if (nonEssentials > 0) {
         gradientParts.push(`var(--color-non-essentials) ${currentDeg}deg ${currentDeg + nonEssentialsDeg}deg`);
@@ -361,9 +358,12 @@ function updateExpenseChart(essentials, emis, nonEssentials, investments) {
         gradientParts.push(`var(--color-investments) ${currentDeg}deg ${currentDeg + investmentsDeg}deg`);
         currentDeg += investmentsDeg;
     }
+    if (savings > 0) {
+        gradientParts.push(`var(--color-emis) ${currentDeg}deg ${currentDeg + savingsDeg}deg`);
+        currentDeg += savingsDeg;
+    }
 
     if (gradientParts.length > 0) {
-        // Fill remaining with background
         if (currentDeg < 360) {
             gradientParts.push(`var(--bg-secondary) ${currentDeg}deg 360deg`);
         }
@@ -372,22 +372,14 @@ function updateExpenseChart(essentials, emis, nonEssentials, investments) {
         chart.style.background = 'var(--bg-secondary)';
     }
 
-    // Update chart center
-    document.getElementById('chartTotal').textContent = formatCurrencyCompact(total);
+    document.getElementById('chartTotal').textContent = formatCurrencyCompact(income);
 
-    // Update legend
     legend.innerHTML = `
         <div class="legend-item">
             <div class="legend-color" style="background: var(--color-essentials)"></div>
-            <span class="legend-label">Essentials</span>
+            <span class="legend-label">Essentials (incl. EMIs)</span>
             <span class="legend-value">${formatCurrencyCompact(essentials)}</span>
             <span class="legend-percentage">${essentialsPercent.toFixed(1)}%</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: var(--color-emis)"></div>
-            <span class="legend-label">EMIs</span>
-            <span class="legend-value">${formatCurrencyCompact(emis)}</span>
-            <span class="legend-percentage">${emisPercent.toFixed(1)}%</span>
         </div>
         <div class="legend-item">
             <div class="legend-color" style="background: var(--color-non-essentials)"></div>
@@ -400,6 +392,12 @@ function updateExpenseChart(essentials, emis, nonEssentials, investments) {
             <span class="legend-label">Investments</span>
             <span class="legend-value">${formatCurrencyCompact(investments)}</span>
             <span class="legend-percentage">${investmentsPercent.toFixed(1)}%</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: var(--color-emis)"></div>
+            <span class="legend-label">Savings (residual)</span>
+            <span class="legend-value">${formatCurrencyCompact(savings)}</span>
+            <span class="legend-percentage">${savingsPercent.toFixed(1)}%</span>
         </div>
     `;
 }
