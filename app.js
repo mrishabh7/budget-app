@@ -324,44 +324,44 @@ function updateCalculations() {
 }
 
 // ===== Update Income Allocation Chart =====
-// Slices are shown as % of Income to visualize the 50:25:25 principle:
-//   Essentials (incl. EMIs) ~50%, Non-Essentials ~25%, Investments + Savings ~25%.
-// Investments and Savings (residual cash) are kept separate so the user can tell
-// whether the wealth bucket is being deployed or sitting idle.
+// Denominator adapts to context so the donut always sums to 100%:
+//   - When outflow <= income: use Income; the residual fills a Savings slice.
+//   - When outflow > income: use total Outflow; investing past savings is a
+//     positive behavior, surfaced via a celebratory note (not a deficit).
+//   - When expenses alone > income: real overspend, surfaced via a warning.
 function updateExpenseChart(essentials, nonEssentials, investments, income) {
-    const savings = Math.max(0, income - essentials - nonEssentials - investments);
+    const expensesOnly = essentials + nonEssentials;
+    const totalOutflow = expensesOnly + investments;
+    const usingIncomeDenominator = income > 0 && totalOutflow <= income;
+    const chartDenominator = usingIncomeDenominator ? income : totalOutflow;
+    const savings = usingIncomeDenominator ? (income - totalOutflow) : 0;
+    const pastSavingsDeployed = (!usingIncomeDenominator && expensesOnly <= income && income > 0)
+        ? (totalOutflow - income) : 0;
+    const expenseOverspend = (income > 0 && expensesOnly > income) ? (expensesOnly - income) : 0;
+
     const chart = document.getElementById('expenseChart');
     const legend = document.getElementById('chartLegend');
+    const note = document.getElementById('chartNote');
+    const totalLabel = document.getElementById('chartTotalLabel');
 
-    const essentialsPercent = income > 0 ? (essentials / income) * 100 : 0;
-    const nonEssentialsPercent = income > 0 ? (nonEssentials / income) * 100 : 0;
-    const investmentsPercent = income > 0 ? (investments / income) * 100 : 0;
-    const savingsPercent = income > 0 ? (savings / income) * 100 : 0;
-
-    const essentialsDeg = essentialsPercent * 3.6;
-    const nonEssentialsDeg = nonEssentialsPercent * 3.6;
-    const investmentsDeg = investmentsPercent * 3.6;
-    const savingsDeg = savingsPercent * 3.6;
+    const pct = (v) => chartDenominator > 0 ? (v / chartDenominator) * 100 : 0;
+    const essentialsPercent = pct(essentials);
+    const nonEssentialsPercent = pct(nonEssentials);
+    const investmentsPercent = pct(investments);
+    const savingsPercent = pct(savings);
 
     let gradientParts = [];
     let currentDeg = 0;
-
-    if (essentials > 0) {
-        gradientParts.push(`var(--color-essentials) ${currentDeg}deg ${currentDeg + essentialsDeg}deg`);
-        currentDeg += essentialsDeg;
-    }
-    if (nonEssentials > 0) {
-        gradientParts.push(`var(--color-non-essentials) ${currentDeg}deg ${currentDeg + nonEssentialsDeg}deg`);
-        currentDeg += nonEssentialsDeg;
-    }
-    if (investments > 0) {
-        gradientParts.push(`var(--color-investments) ${currentDeg}deg ${currentDeg + investmentsDeg}deg`);
-        currentDeg += investmentsDeg;
-    }
-    if (savings > 0) {
-        gradientParts.push(`var(--color-emis) ${currentDeg}deg ${currentDeg + savingsDeg}deg`);
-        currentDeg += savingsDeg;
-    }
+    const pushSlice = (value, color) => {
+        if (value <= 0) return;
+        const deg = pct(value) * 3.6;
+        gradientParts.push(`${color} ${currentDeg}deg ${currentDeg + deg}deg`);
+        currentDeg += deg;
+    };
+    pushSlice(essentials, 'var(--color-essentials)');
+    pushSlice(nonEssentials, 'var(--color-non-essentials)');
+    pushSlice(investments, 'var(--color-investments)');
+    if (usingIncomeDenominator) pushSlice(savings, 'var(--color-savings)');
 
     if (gradientParts.length > 0) {
         if (currentDeg < 360) {
@@ -372,9 +372,12 @@ function updateExpenseChart(essentials, nonEssentials, investments, income) {
         chart.style.background = 'var(--bg-secondary)';
     }
 
-    document.getElementById('chartTotal').textContent = formatCurrencyCompact(income);
+    document.getElementById('chartTotal').textContent = formatCurrencyCompact(chartDenominator);
+    if (totalLabel) {
+        totalLabel.textContent = usingIncomeDenominator ? 'Income' : 'Cash Deployed';
+    }
 
-    legend.innerHTML = `
+    let legendHtml = `
         <div class="legend-item">
             <div class="legend-color" style="background: var(--color-essentials)"></div>
             <span class="legend-label">Essentials (incl. EMIs)</span>
@@ -392,14 +395,30 @@ function updateExpenseChart(essentials, nonEssentials, investments, income) {
             <span class="legend-label">Investments</span>
             <span class="legend-value">${formatCurrencyCompact(investments)}</span>
             <span class="legend-percentage">${investmentsPercent.toFixed(1)}%</span>
-        </div>
+        </div>`;
+    if (usingIncomeDenominator) {
+        legendHtml += `
         <div class="legend-item">
-            <div class="legend-color" style="background: var(--color-emis)"></div>
+            <div class="legend-color" style="background: var(--color-savings)"></div>
             <span class="legend-label">Savings (residual)</span>
             <span class="legend-value">${formatCurrencyCompact(savings)}</span>
             <span class="legend-percentage">${savingsPercent.toFixed(1)}%</span>
-        </div>
-    `;
+        </div>`;
+    }
+    legend.innerHTML = legendHtml;
+
+    if (note) {
+        note.classList.remove('warning', 'celebrate');
+        if (expenseOverspend > 0) {
+            note.classList.add('warning');
+            note.textContent = `⚠ Expenses exceed income by ${formatCurrencyCompact(expenseOverspend)} this month`;
+        } else if (pastSavingsDeployed > 0) {
+            note.classList.add('celebrate');
+            note.textContent = `💪 Investments include ${formatCurrencyCompact(pastSavingsDeployed)} deployed from past savings`;
+        } else {
+            note.textContent = '';
+        }
+    }
 }
 
 // ===== Update Health Indicators =====
