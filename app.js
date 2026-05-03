@@ -314,8 +314,8 @@ function updateCalculations() {
     // Update chart (Essentials slice includes EMIs for the 50:25:25 view)
     updateExpenseChart(essentialsTotal + emisTotal, nonEssentialsTotal, investmentsTotal, income);
 
-    // Update health indicators (Essentials includes EMIs; wealth = income - totalExpenses)
-    updateHealthIndicators(income, essentialsTotal + emisTotal, nonEssentialsTotal, income - totalExpenses);
+    // Update health indicators (Essentials includes EMIs; wealth metric credits actual investments)
+    updateHealthIndicators(income, essentialsTotal + emisTotal, nonEssentialsTotal, investmentsTotal);
 
     // Update net worth
     document.getElementById('networthAssets').textContent = formatCurrency(assetsTotal);
@@ -345,10 +345,17 @@ function updateExpenseChart(essentials, nonEssentials, investments, income) {
     const totalLabel = document.getElementById('chartTotalLabel');
 
     const pct = (v) => chartDenominator > 0 ? (v / chartDenominator) * 100 : 0;
+    const pctOfIncome = (v) => income > 0 ? (v / income) * 100 : 0;
     const essentialsPercent = pct(essentials);
     const nonEssentialsPercent = pct(nonEssentials);
     const investmentsPercent = pct(investments);
     const savingsPercent = pct(savings);
+    // When the donut denominator differs from income, also show "% of income"
+    // so the user can sanity-check against the 50:25:25 targets.
+    const showOfIncome = !usingIncomeDenominator && income > 0;
+    const ofIncome = (v) => showOfIncome
+        ? `<span class="legend-pct-secondary">${pctOfIncome(v).toFixed(1)}% of income</span>`
+        : '';
 
     let gradientParts = [];
     let currentDeg = 0;
@@ -382,19 +389,19 @@ function updateExpenseChart(essentials, nonEssentials, investments, income) {
             <div class="legend-color" style="background: var(--color-essentials)"></div>
             <span class="legend-label">Essentials (incl. EMIs)</span>
             <span class="legend-value">${formatCurrencyCompact(essentials)}</span>
-            <span class="legend-percentage">${essentialsPercent.toFixed(1)}%</span>
+            <span class="legend-percentage">${essentialsPercent.toFixed(1)}%${ofIncome(essentials)}</span>
         </div>
         <div class="legend-item">
             <div class="legend-color" style="background: var(--color-non-essentials)"></div>
             <span class="legend-label">Non-Essentials</span>
             <span class="legend-value">${formatCurrencyCompact(nonEssentials)}</span>
-            <span class="legend-percentage">${nonEssentialsPercent.toFixed(1)}%</span>
+            <span class="legend-percentage">${nonEssentialsPercent.toFixed(1)}%${ofIncome(nonEssentials)}</span>
         </div>
         <div class="legend-item">
             <div class="legend-color" style="background: var(--color-investments)"></div>
             <span class="legend-label">Investments</span>
             <span class="legend-value">${formatCurrencyCompact(investments)}</span>
-            <span class="legend-percentage">${investmentsPercent.toFixed(1)}%</span>
+            <span class="legend-percentage">${investmentsPercent.toFixed(1)}%${ofIncome(investments)}</span>
         </div>`;
     if (usingIncomeDenominator) {
         legendHtml += `
@@ -417,12 +424,14 @@ function updateExpenseChart(essentials, nonEssentials, investments, income) {
             rows.push({ label: 'Allocated (expenses + investments)', value: totalOutflow });
             rows.push({ label: 'Residual cash', value: savings });
         } else if (expenseOverspend > 0) {
-            // Real overspend.
+            // Real overspend. Past savings funded BOTH the excess expenses AND
+            // the investments, so the drawn amount is the full gap (not just
+            // the expense overspend).
             rows.push({ label: 'Cash deployed (expenses + investments)', value: totalOutflow });
             rows.push({ label: 'This month\'s income', value: income });
-            rows.push({ label: 'Drawn from past savings', value: expenseOverspend });
+            rows.push({ label: 'Drawn from past savings', value: totalOutflow - income });
             note.classList.add('warning');
-            message = `⚠ Expenses alone (${formatCurrencyCompact(expensesOnly)}) exceed income by ${formatCurrencyCompact(expensesOnly - income)}`;
+            message = `⚠ Expenses alone (${formatCurrencyCompact(expensesOnly)}) exceed income by ${formatCurrencyCompact(expenseOverspend)}`;
         } else {
             // Aggressive investing — funded partly from past savings.
             rows.push({ label: 'Cash deployed (expenses + investments)', value: totalOutflow });
@@ -443,9 +452,10 @@ function updateExpenseChart(essentials, nonEssentials, investments, income) {
 
 // ===== Update Health Indicators (aligned with 50:25:25) =====
 // Caller passes the merged Essentials (essentials + EMIs) since EMIs belong
-// in the 50% needs bucket. `wealth` = income - merged expenses (the share of
-// income going to savings + investments combined).
-function updateHealthIndicators(income, essentialsInclEmis, nonEssentials, wealth) {
+// in the 50% needs bucket. The wealth bucket counts BOTH actual investments
+// and any unspent residual cash, so a user who overspends on essentials but
+// still invests aggressively gets correct credit for the investing.
+function updateHealthIndicators(income, essentialsInclEmis, nonEssentials, investments) {
     if (income <= 0) {
         ['essentials', 'nonEssentials', 'savings'].forEach(key => {
             const el = document.getElementById(`health-${key}`);
@@ -456,6 +466,10 @@ function updateHealthIndicators(income, essentialsInclEmis, nonEssentials, wealt
         });
         return;
     }
+
+    const expenses = essentialsInclEmis + nonEssentials;
+    const residualCash = Math.max(0, income - expenses - investments);
+    const wealth = investments + residualCash;
 
     updateHealthItem('essentials', (essentialsInclEmis / income) * 100, HEALTH_THRESHOLDS.essentials, false, 'essentials');
     updateHealthItem('nonEssentials', (nonEssentials / income) * 100, HEALTH_THRESHOLDS.nonEssentials, false, 'nonEssentials');
