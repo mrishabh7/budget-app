@@ -687,6 +687,17 @@ body::before {
     color: var(--text-muted);
     min-width: 45px;
     text-align: right;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.2;
+}
+
+.legend-pct-secondary {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    opacity: 0.75;
+    white-space: nowrap;
 }
 
 .chart-note {
