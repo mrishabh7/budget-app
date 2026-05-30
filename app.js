@@ -893,6 +893,8 @@ function parseCSV(text) {
     const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
     const amountIdx = headers.indexOf('amount');
     const refIdx = headers.indexOf('ref');
+    // Optional column: used to break the Investments category out per merchant.
+    const merchantIdx = headers.indexOf('merchant');
 
     if (amountIdx === -1 || refIdx === -1) return null;
 
@@ -903,10 +905,11 @@ function parseCSV(text) {
 
         const amount = parseFloat(cols[amountIdx]);
         const ref = (cols[refIdx] || '').trim();
+        const merchant = merchantIdx !== -1 ? (cols[merchantIdx] || '').trim() : '';
 
         if (isNaN(amount) || amount <= 0 || !ref) continue;
 
-        rows.push({ amount, ref });
+        rows.push({ amount, ref, merchant });
     }
     return rows;
 }
@@ -917,8 +920,16 @@ function normalizeRef(ref) {
 
 function groupByRef(rows) {
     const groups = {};
-    rows.forEach(({ amount, ref }) => {
-        const normalized = normalizeRef(ref);
+    rows.forEach(({ amount, ref, merchant }) => {
+        // Investments share the same Ref ("investments") across every row, so
+        // grouping by Ref would collapse them into a single lump. For this
+        // category only, group by Merchant instead so each merchant becomes
+        // its own row that can be mapped to an investment sub-item. Every other
+        // category keeps grouping by Ref exactly as before.
+        const isInvestment = ref.trim().toLowerCase() === 'investments';
+        const groupBy = (isInvestment && merchant) ? merchant : ref;
+
+        const normalized = normalizeRef(groupBy);
         if (!normalized) return;
         if (!groups[normalized]) {
             groups[normalized] = { total: 0, count: 0 };
