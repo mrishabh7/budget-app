@@ -1144,7 +1144,13 @@ function applyCsvImport() {
     // Step 3: save mapping for future uploads
     saveCsvMapping(mappingToSave);
 
-    // Step 4: apply amounts to currentData and form inputs
+    // Step 4: apply amounts to currentData and form inputs.
+    // Multiple CSV refs can legitimately map to the same budget item (e.g.
+    // several mutual fund SIPs, or both EPF and NPS transactions going into
+    // "NPS/PPF Investments"). Sum the amounts per target item instead of
+    // overwriting, otherwise only the last ref's amount survives and the
+    // investment/EPF/NPS/mutual-fund break-up comes out wrong.
+    const targetTotals = {};
     let importedCount = 0;
     Object.entries(resolvedMappings).forEach(([normalizedRef, mapping]) => {
         if (mapping === 'skip') return;
@@ -1153,12 +1159,17 @@ function applyCsvImport() {
         if (!catKey || !itemKey || !currentData[catKey]) return;
 
         const amount = csvImportGroups[normalizedRef]?.total || 0;
+        targetTotals[mapping] = (targetTotals[mapping] || 0) + amount;
+
+        importedCount++;
+    });
+
+    Object.entries(targetTotals).forEach(([mapping, amount]) => {
+        const [catKey, itemKey] = mapping.split('.');
         currentData[catKey][itemKey] = amount;
 
         const input = document.getElementById(`${catKey}_${itemKey}`);
         if (input) input.value = amount || '';
-
-        importedCount++;
     });
 
     updateCalculations();
