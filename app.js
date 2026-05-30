@@ -220,6 +220,12 @@ function attachEventListeners() {
 
     // Load button
     loadBtn.addEventListener('click', loadSelectedMonth);
+
+    // Auto-load when the month or year selection changes. On mobile/standalone
+    // web apps there's no browser reload, so changing the dropdown should
+    // immediately refresh the displayed data instead of waiting for a tap on Load.
+    monthSelect.addEventListener('change', loadSelectedMonth);
+    yearSelect.addEventListener('change', loadSelectedMonth);
 }
 
 function handleLabelClick(e) {
@@ -550,6 +556,11 @@ function loadSelectedMonth() {
         updateCalculations();
         showToast(`Loaded budget for ${getMonthName(month)} ${year}`);
     } else {
+        // No saved data for this month: clear the form so we don't keep
+        // showing the previously selected month's values (stale data).
+        currentData = createEmptyBudget();
+        populateFormWithData();
+        updateCalculations();
         showToast(`No data found for ${getMonthName(month)} ${year}`);
     }
 }
