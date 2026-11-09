@@ -157,23 +157,42 @@ function loadBudgetData(year, month) {
     return ensureNotesShape(parsed);
 }
 
+// Month keys are budget_YYYY_MM. Settings keys such as budget_custom_categories
+// also start with the prefix and must not appear in Saved Months.
+function parseBudgetMonthKey(key) {
+    if (!key || !key.startsWith(STORAGE_PREFIX)) return null;
+    const match = /^(\d{4})_(\d{2})$/.exec(key.slice(STORAGE_PREFIX.length));
+    if (!match) return null;
+    const monthNum = parseInt(match[2], 10);
+    if (monthNum < 1 || monthNum > 12) return null;
+    return { year: match[1], month: match[2] };
+}
+
 // Get all saved months
 function getSavedMonths() {
     const months = [];
     for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key.startsWith(STORAGE_PREFIX)) {
-            const parts = key.replace(STORAGE_PREFIX, '').split('_');
-            if (parts.length === 2) {
-                months.push({ year: parts[0], month: parts[1] });
-            }
-        }
+        const parsed = parseBudgetMonthKey(localStorage.key(i));
+        if (parsed) months.push(parsed);
     }
     // Sort by year and month descending
     return months.sort((a, b) => {
         if (a.year !== b.year) return b.year - a.year;
         return b.month - a.month;
     });
+}
+
+// Latest saved month strictly before the given period, or null
+function getPreviousSavedMonth(year, month) {
+    const target = `${year}${month}`;
+    let best = null;
+    getSavedMonths().forEach(entry => {
+        const key = `${entry.year}${entry.month}`;
+        if (key < target && (!best || `${best.year}${best.month}` < key)) {
+            best = entry;
+        }
+    });
+    return best;
 }
 
 // Delete budget data for a specific month

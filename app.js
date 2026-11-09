@@ -1,14 +1,139 @@
 // ===== Application State =====
 let currentData = createEmptyBudget();
+let openPeriod = { year: null, month: null };
+let lastSavedJson = '';
+let autosaveTimer = null;
+let cloudPushTimer = null;
+const AUTOSAVE_DELAY_MS = 800;
 
 // ===== DOM Elements =====
 const monthSelect = document.getElementById('monthSelect');
 const yearSelect = document.getElementById('yearSelect');
 const saveBtn = document.getElementById('saveDataBtn');
-const loadBtn = document.getElementById('loadDataBtn');
 const myIncomeInput = document.getElementById('myIncome');
 const partnerIncomeInput = document.getElementById('partnerIncome');
 const totalIncomeDisplay = document.getElementById('totalIncomeDisplay');
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function currentJson() {
+    return JSON.stringify(currentData);
+}
+
+function isDirty() {
+    return currentJson() !== lastSavedJson;
+}
+
+function setSaveIndicator(state) {
+    const el = document.getElementById('saveState');
+    if (!el) return;
+    el.className = `save-state ${state}`;
+    el.textContent = state === 'unsaved' ? 'Unsaved' : state === 'saving' ? 'Saving…' : 'Saved';
+}
+
+function markClean() {
+    lastSavedJson = currentJson();
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    setSaveIndicator('saved');
+}
+
+// Drop a queued local save and cloud push. Used before a cloud pull replaces storage.
+function cancelPendingSaves() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    clearTimeout(cloudPushTimer);
+    cloudPushTimer = null;
+}
+
+function pushCloudNow() {
+    clearTimeout(cloudPushTimer);
+    cloudPushTimer = null;
+    if (typeof CloudSync !== 'undefined' && CloudSync.syncEnabled) {
+        CloudSync.pushToCloud();
+    }
+}
+
+function scheduleCloudPush() {
+    clearTimeout(cloudPushTimer);
+    cloudPushTimer = setTimeout(pushCloudNow, 400);
+}
+
+// Write the open month when it differs from the last snapshot.
+function persistOpenMonth({ pushCloud = false } = {}) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    if (!openPeriod.year || !openPeriod.month) return false;
+    pruneUnknownCategoryData(currentData);
+    if (!isDirty()) return false;
+    setSaveIndicator('saving');
+    saveBudgetData(openPeriod.year, openPeriod.month, currentData);
+    lastSavedJson = currentJson();
+    setSaveIndicator('saved');
+    updateHistoryList();
+    if (pushCloud) scheduleCloudPush();
+    return true;
+}
+
+function markDirty() {
+    if (!isDirty()) {
+        clearTimeout(autosaveTimer);
+        autosaveTimer = null;
+        setSaveIndicator('saved');
+        return;
+    }
+    setSaveIndicator('unsaved');
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(() => {
+        persistOpenMonth({ pushCloud: true });
+    }, AUTOSAVE_DELAY_MS);
+}
+
+function budgetHasNumbers(data) {
+    if (!data) return false;
+    if ((Number(data.myIncome) || 0) > 0 || (Number(data.partnerIncome) || 0) > 0 || (Number(data.income) || 0) > 0) {
+        return true;
+    }
+    return Object.keys(CATEGORIES).some(categoryKey => {
+        const items = CATEGORIES[categoryKey].items;
+        const bucket = data[categoryKey] || {};
+        return Object.keys(items).some(itemKey => (Number(bucket[itemKey]) || 0) > 0);
+    });
+}
+
+function budgetHasContent(data) {
+    if (budgetHasNumbers(data)) return true;
+    if (!data || !data.notes) return false;
+    return Object.keys(data.notes).some(categoryKey => {
+        const notes = data.notes[categoryKey];
+        return notes && Object.keys(notes).some(itemKey => notes[itemKey]);
+    });
+}
+
+// Drop amounts and notes for line items that are no longer in CATEGORIES.
+function pruneUnknownCategoryData(data) {
+    if (!data) return;
+    Object.keys(CATEGORIES).forEach(categoryKey => {
+        const bucket = data[categoryKey];
+        if (!bucket || typeof bucket !== 'object') return;
+        const known = CATEGORIES[categoryKey].items;
+        Object.keys(bucket).forEach(itemKey => {
+            if (!known[itemKey]) {
+                delete bucket[itemKey];
+                if (data.notes && data.notes[categoryKey]) {
+                    delete data.notes[categoryKey][itemKey];
+                }
+            }
+        });
+    });
+}
 
 // ===== Initialize App =====
 document.addEventListener('DOMContentLoaded', () => {
@@ -53,9 +178,9 @@ function generateInputFields() {
             const inputItem = document.createElement('div');
             inputItem.className = 'input-item';
             inputItem.innerHTML = `
-                <label class="item-label" data-category="${categoryKey}" data-item="${itemKey}"
+                <label class="item-label" data-category="${escapeHtml(categoryKey)}" data-item="${escapeHtml(itemKey)}"
                        role="button" tabindex="0" title="Click to add a note">
-                    <span class="item-label-text">${item.label}</span>
+                    <span class="item-label-text">${escapeHtml(item.label)}</span>
                     ${hasNote ? '<span class="note-indicator" aria-label="Has note">📝</span>' : ''}
                 </label>
                 <div class="input-wrapper">
@@ -121,14 +246,14 @@ function openNotePopover(category, item, anchorEl) {
     if (!currentData.notes) currentData.notes = {};
     if (!currentData.notes[category]) currentData.notes[category] = {};
 
-    const existingNote = currentData.notes[category][item] || '';
+        const existingNote = currentData.notes[category][item] || '';
     const itemLabel = (CATEGORIES[category] && CATEGORIES[category].items[item] && CATEGORIES[category].items[item].label) || item;
 
     const popover = document.createElement('div');
     popover.className = 'note-popover';
     popover.innerHTML = `
         <div class="note-popover-header">
-            <span class="note-popover-title">📝 Note for ${itemLabel}</span>
+            <span class="note-popover-title"></span>
             <button type="button" class="note-popover-close" aria-label="Close">✕</button>
         </div>
         <textarea class="note-popover-textarea"
@@ -140,6 +265,7 @@ function openNotePopover(category, item, anchorEl) {
         </div>
     `;
     document.body.appendChild(popover);
+    popover.querySelector('.note-popover-title').textContent = `📝 Note for ${itemLabel}`;
 
     const textarea = popover.querySelector('.note-popover-textarea');
     textarea.value = existingNote;
@@ -169,6 +295,7 @@ function openNotePopover(category, item, anchorEl) {
         }
         refreshNoteIndicator(category, item);
         closeNotePopover();
+        markDirty();
     };
 
     const clear = () => {
@@ -208,6 +335,7 @@ function attachEventListeners() {
             const item = e.target.dataset.item;
             currentData[category][item] = parseFloat(e.target.value) || 0;
             updateCalculations();
+            markDirty();
         });
     });
 
@@ -218,14 +346,18 @@ function attachEventListeners() {
     // Save button
     saveBtn.addEventListener('click', saveCurrentData);
 
-    // Load button
-    loadBtn.addEventListener('click', loadSelectedMonth);
-
-    // Auto-load when the month or year selection changes. On mobile/standalone
-    // web apps there's no browser reload, so changing the dropdown should
-    // immediately refresh the displayed data instead of waiting for a tap on Load.
+    // Changing the month flushes the one on screen, then loads the selection.
     monthSelect.addEventListener('change', loadSelectedMonth);
     yearSelect.addEventListener('change', loadSelectedMonth);
+
+    document.getElementById('copyPrevBtn').addEventListener('click', copyPreviousMonth);
+    document.getElementById('copyBannerBtn').addEventListener('click', copyPreviousMonth);
+    document.getElementById('backupBtn').addEventListener('click', downloadBackup);
+
+    window.addEventListener('beforeunload', () => {
+        if (!openPeriod.year || !isDirty()) return;
+        saveBudgetData(openPeriod.year, openPeriod.month, currentData);
+    });
 }
 
 function handleLabelClick(e) {
@@ -264,6 +396,7 @@ function updateIncomeFromInputs() {
     currentData.income = currentData.myIncome + currentData.partnerIncome;
     updateIncomeDisplay();
     updateCalculations();
+    markDirty();
 }
 
 function updateIncomeDisplay() {
@@ -273,9 +406,12 @@ function updateIncomeDisplay() {
 
 // ===== Calculate Category Total =====
 function calculateCategoryTotal(categoryKey) {
+    const items = CATEGORIES[categoryKey] && CATEGORIES[categoryKey].items;
+    const bucket = currentData[categoryKey];
+    if (!items || !bucket) return 0;
     let total = 0;
-    Object.keys(currentData[categoryKey]).forEach(item => {
-        total += currentData[categoryKey][item] || 0;
+    Object.keys(items).forEach(itemKey => {
+        total += Number(bucket[itemKey]) || 0;
     });
     return total;
 }
@@ -295,9 +431,7 @@ function updateCalculations() {
     // Total expenses (excluding investments, assets, liabilities)
     const totalExpenses = essentialsTotal + emisTotal + nonEssentialsTotal;
 
-    // Savings = Residual (income - expenses) + Investments
-    const residualSavings = income - totalExpenses - investmentsTotal;
-    const totalSavingsAndInvestments = residualSavings + investmentsTotal; // This equals income - expenses without investments
+    // Savings rate keeps invested money inside the rate. Unallocated is reported separately.
     const savingsRate = income > 0 ? ((income - totalExpenses) / income) * 100 : 0;
 
     // Net Worth
@@ -311,10 +445,15 @@ function updateCalculations() {
     document.getElementById('assetsTotal').textContent = formatCurrency(assetsTotal);
     document.getElementById('liabilitiesTotal').textContent = formatCurrency(liabilitiesTotal);
 
-    // Update summary
+    // Invested is money already assigned to investments.
+    // Unallocated is what is still left after living expenses and investments.
+    const unallocated = income - totalExpenses - investmentsTotal;
     document.getElementById('summaryIncome').textContent = formatCurrency(income);
     document.getElementById('summaryExpenses').textContent = formatCurrency(totalExpenses);
-    document.getElementById('summarySavings').textContent = formatCurrency(income - totalExpenses);
+    document.getElementById('summaryInvested').textContent = formatCurrency(investmentsTotal);
+    const unallocatedEl = document.getElementById('summaryUnallocated');
+    unallocatedEl.textContent = formatCurrency(unallocated);
+    unallocatedEl.classList.toggle('negative', unallocated < 0);
     document.getElementById('summarySavingsRate').textContent = savingsRate.toFixed(1) + '%';
 
     // Update chart (Essentials slice includes EMIs for the 50:25:25 view)
@@ -327,6 +466,8 @@ function updateCalculations() {
     document.getElementById('networthAssets').textContent = formatCurrency(assetsTotal);
     document.getElementById('networthLiabilities').textContent = formatCurrency(liabilitiesTotal);
     document.getElementById('networthTotal').textContent = formatCurrency(netWorth);
+
+    updateCopyBanner();
 }
 
 // ===== Update Income Allocation Chart =====
@@ -531,16 +672,31 @@ function updateHealthItem(key, percentage, thresholds, inverted, category) {
 
 // ===== Save Current Data =====
 function saveCurrentData() {
-    const year = yearSelect.value;
-    const month = monthSelect.value;
-
-    saveBudgetData(year, month, currentData);
+    if (!openPeriod.year || !openPeriod.month) return;
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    pruneUnknownCategoryData(currentData);
+    saveBudgetData(openPeriod.year, openPeriod.month, currentData);
+    lastSavedJson = currentJson();
+    setSaveIndicator('saved');
     updateHistoryList();
-    showToast(`Saved budget for ${getMonthName(month)} ${year}`);
+    showToast(`Saved budget for ${getMonthName(openPeriod.month)} ${openPeriod.year}`);
+    pushCloudNow();
+}
 
-    // Trigger cloud sync if enabled
-    if (typeof CloudSync !== 'undefined' && CloudSync.syncEnabled) {
-        CloudSync.pushToCloud();
+function applyPeriodData(data) {
+    currentData = data || createEmptyBudget();
+    if (typeof ensureNotesShape === 'function') ensureNotesShape(currentData);
+    const beforePrune = JSON.stringify(currentData);
+    pruneUnknownCategoryData(currentData);
+    const pruned = JSON.stringify(currentData) !== beforePrune;
+    populateFormWithData();
+    updateCalculations();
+    markClean();
+    // Drop removed line items from storage as soon as the month is opened.
+    if (pruned && data && openPeriod.year && openPeriod.month) {
+        saveBudgetData(openPeriod.year, openPeriod.month, currentData);
+        lastSavedJson = currentJson();
     }
 }
 
@@ -548,36 +704,32 @@ function saveCurrentData() {
 function loadSelectedMonth() {
     const year = yearSelect.value;
     const month = monthSelect.value;
+    const switching = openPeriod.year && (openPeriod.year !== year || openPeriod.month !== month);
+    if (switching) {
+        persistOpenMonth({ pushCloud: true });
+    } else {
+        clearTimeout(autosaveTimer);
+        autosaveTimer = null;
+    }
 
+    openPeriod = { year, month };
     const data = loadBudgetData(year, month);
     if (data) {
-        currentData = data;
-        populateFormWithData();
-        updateCalculations();
+        applyPeriodData(data);
         showToast(`Loaded budget for ${getMonthName(month)} ${year}`);
     } else {
         // No saved data for this month: clear the form so we don't keep
         // showing the previously selected month's values (stale data).
-        currentData = createEmptyBudget();
-        populateFormWithData();
-        updateCalculations();
+        applyPeriodData(null);
         showToast(`No data found for ${getMonthName(month)} ${year}`);
     }
 }
 
 // ===== Try Load Current Month =====
 function tryLoadCurrentMonth() {
-    const year = yearSelect.value;
-    const month = monthSelect.value;
-
-    const data = loadBudgetData(year, month);
-    if (data) {
-        currentData = data;
-        populateFormWithData();
-        updateCalculations();
-    } else {
-        updateCalculations();
-    }
+    cancelPendingSaves();
+    openPeriod = { year: yearSelect.value, month: monthSelect.value };
+    applyPeriodData(loadBudgetData(openPeriod.year, openPeriod.month));
 }
 
 // ===== Populate Form with Data =====
@@ -635,11 +787,114 @@ function loadHistoryMonth(year, month) {
 // ===== Delete History Month =====
 function deleteHistoryMonth(event, year, month) {
     event.stopPropagation();
-    if (confirm(`Delete budget for ${getMonthName(month)} ${year}?`)) {
-        deleteBudgetData(year, month);
-        updateHistoryList();
-        showToast(`Deleted budget for ${getMonthName(month)} ${year}`);
+    if (!confirm(`Delete budget for ${getMonthName(month)} ${year}?`)) return;
+
+    const deletingOpen = openPeriod.year === year && openPeriod.month === month;
+    deleteBudgetData(year, month);
+    if (deletingOpen) {
+        cancelPendingSaves();
+        applyPeriodData(null);
+    } else if (isDirty()) {
+        persistOpenMonth({ pushCloud: false });
     }
+    updateHistoryList();
+    showToast(`Deleted budget for ${getMonthName(month)} ${year}`);
+    pushCloudNow();
+}
+
+function updateCopyBanner() {
+    const banner = document.getElementById('copyBanner');
+    const text = document.getElementById('copyBannerText');
+    const headerBtn = document.getElementById('copyPrevBtn');
+    const prev = (openPeriod.year && openPeriod.month)
+        ? getPreviousSavedMonth(openPeriod.year, openPeriod.month)
+        : null;
+    if (headerBtn) headerBtn.hidden = !prev;
+    const showBanner = !!(prev && !budgetHasNumbers(currentData));
+    if (banner) banner.hidden = !showBanner;
+    if (showBanner && text) {
+        text.textContent = `This month is empty. Copy ${getMonthName(prev.month)} ${prev.year}?`;
+    }
+}
+
+function copyPreviousMonth() {
+    if (!openPeriod.year || !openPeriod.month) return;
+    const prev = getPreviousSavedMonth(openPeriod.year, openPeriod.month);
+    if (!prev) {
+        showToast('No earlier month to copy');
+        return;
+    }
+    const sourceLabel = `${getMonthName(prev.month)} ${prev.year}`;
+    if (budgetHasContent(currentData)) {
+        const replace = confirm(`Replace ${getMonthName(openPeriod.month)} ${openPeriod.year} with ${sourceLabel}?`);
+        if (!replace) return;
+    }
+
+    const source = loadBudgetData(prev.year, prev.month);
+    if (!source) {
+        showToast('Could not read the previous month');
+        return;
+    }
+
+    const next = createEmptyBudget();
+    next.myIncome = Number(source.myIncome) || 0;
+    next.partnerIncome = Number(source.partnerIncome) || 0;
+    if (!next.myIncome && !next.partnerIncome && source.income) {
+        next.myIncome = Number(source.income) || 0;
+    }
+    next.income = next.myIncome + next.partnerIncome;
+
+    Object.keys(CATEGORIES).forEach(categoryKey => {
+        const sourceBucket = source[categoryKey] || {};
+        const sourceNotes = (source.notes && source.notes[categoryKey]) || {};
+        Object.keys(CATEGORIES[categoryKey].items).forEach(itemKey => {
+            next[categoryKey][itemKey] = Number(sourceBucket[itemKey]) || 0;
+            if (sourceNotes[itemKey]) next.notes[categoryKey][itemKey] = sourceNotes[itemKey];
+        });
+    });
+
+    currentData = next;
+    populateFormWithData();
+    updateCalculations();
+    markDirty();
+    showToast(`Copied ${sourceLabel}`);
+}
+
+function downloadBackup() {
+    if (isDirty()) persistOpenMonth({ pushCloud: false });
+
+    const backup = {
+        exportedAt: new Date().toISOString(),
+        months: {},
+        customCategories: null,
+        csvMapping: null
+    };
+    getSavedMonths().forEach(({ year, month }) => {
+        backup.months[`${year}_${month}`] = loadBudgetData(year, month);
+    });
+    try {
+        const custom = localStorage.getItem('budget_custom_categories');
+        backup.customCategories = custom ? JSON.parse(custom) : null;
+    } catch (error) {
+        backup.customCategories = null;
+    }
+    try {
+        const mapping = localStorage.getItem(CSV_MAPPING_KEY);
+        backup.csvMapping = mapping ? JSON.parse(mapping) : null;
+    } catch (error) {
+        backup.csvMapping = null;
+    }
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `budget-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('Backup downloaded');
 }
 
 // ===== Toast Notification =====
@@ -733,22 +988,23 @@ function renderCategoryItems(categoryKey) {
     const container = document.getElementById('categoryManagerContent');
     const category = editingCategories[categoryKey];
 
+    const safeCategory = escapeHtml(categoryKey);
     container.innerHTML = `
         <div class="category-manager-section">
             <div class="category-list">
                 ${Object.keys(category.items).map(itemKey => `
-                    <div class="category-item" data-key="${itemKey}">
-                        <input type="text" value="${category.items[itemKey].label}" 
-                               onchange="updateCategoryItem('${categoryKey}', '${itemKey}', this.value)">
+                    <div class="category-item" data-key="${escapeHtml(itemKey)}">
+                        <input type="text" value="${escapeHtml(category.items[itemKey].label)}"
+                               onchange="updateCategoryItem('${safeCategory}', '${escapeHtml(itemKey)}', this.value)">
                         <div class="category-item-actions">
-                            <button class="category-item-btn delete" 
-                                    onclick="deleteCategoryItem('${categoryKey}', '${itemKey}')"
+                            <button class="category-item-btn delete" type="button"
+                                    onclick="deleteCategoryItem('${safeCategory}', '${escapeHtml(itemKey)}')"
                                     title="Delete">🗑️</button>
                         </div>
                     </div>
                 `).join('')}
             </div>
-            <button class="add-category-btn" onclick="addCategoryItem('${categoryKey}')">
+            <button class="add-category-btn" type="button" onclick="addCategoryItem('${safeCategory}')">
                 ➕ Add New Item
             </button>
         </div>
@@ -822,7 +1078,10 @@ function saveCategories() {
         });
     });
 
+    pruneUnknownCategoryData(currentData);
     updateCalculations();
+    if (isDirty()) persistOpenMonth({ pushCloud: false });
+    pushCloudNow();
     closeCategoryModal();
     showToast('Categories saved successfully!');
 }
@@ -836,6 +1095,7 @@ function attachCategoryInputListeners() {
             if (category && item) {
                 currentData[category][item] = parseFloat(e.target.value) || 0;
                 updateCalculations();
+                markDirty();
             }
         });
     });
@@ -951,7 +1211,7 @@ function buildCategoryOptionsHTML(selectedValue) {
         Object.keys(cat.items).forEach(itemKey => {
             const value = `${catKey}.${itemKey}`;
             const selected = selectedValue === value ? ' selected' : '';
-            html += `<option value="${value}"${selected}>&nbsp;&nbsp;${cat.items[itemKey].label}</option>`;
+            html += `<option value="${escapeHtml(value)}"${selected}>&nbsp;&nbsp;${escapeHtml(cat.items[itemKey].label)}</option>`;
         });
     });
     return html;
@@ -973,13 +1233,13 @@ function renderCsvRow(idx, normalizedRef, { total, count }, savedValue, isNew) {
     const rowClass = isNew ? 'csv-mapping-row csv-row-new' : 'csv-mapping-row';
 
     const catOptions = Object.keys(CATEGORIES).map(k =>
-        `<option value="${k}"${k === newCategoryKey ? ' selected' : ''}>${CATEGORIES[k].label}</option>`
+        `<option value="${escapeHtml(k)}"${k === newCategoryKey ? ' selected' : ''}>${escapeHtml(CATEGORIES[k].label)}</option>`
     ).join('');
 
     return `
         <div class="${rowClass}">
             <div class="csv-ref-info">
-                <span class="csv-ref-name">${normalizedRef}</span>
+                <span class="csv-ref-name">${escapeHtml(normalizedRef)}</span>
                 <span class="csv-ref-meta">${formatCurrency(total)} &middot; ${count} txn${count > 1 ? 's' : ''}</span>
             </div>
             <div class="csv-ref-mapping">
@@ -990,7 +1250,7 @@ function renderCsvRow(idx, normalizedRef, { total, count }, savedValue, isNew) {
                     <select class="csv-new-cat-select" id="csv-new-cat-${idx}"
                             onchange="onCsvNewCatChange(${idx})">${catOptions}</select>
                     <input type="text" class="csv-new-label-input" id="csv-new-label-${idx}"
-                           value="${newLabel}"
+                           value="${escapeHtml(newLabel)}"
                            placeholder="Item label"
                            oninput="onCsvNewLabelChange(${idx}, this.value)">
                 </div>
@@ -1162,6 +1422,7 @@ function applyCsvImport() {
     });
 
     updateCalculations();
+    persistOpenMonth({ pushCloud: true });
     closeCsvModal();
     showToast(`Imported ${importedCount} expense ${importedCount === 1 ? 'category' : 'categories'} from CSV`);
 }
