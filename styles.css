@@ -79,6 +79,8 @@ body.light-theme .section-header:hover {
 html {
     font-size: 16px;
     scroll-behavior: smooth;
+    /* Showing the copy banner must not slide it under the sticky header. */
+    overflow-anchor: none;
 }
 
 body {
@@ -589,12 +591,62 @@ body::before {
     color: var(--color-non-essentials);
 }
 
-.savings-card {
+.invested-card {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.05));
+}
+
+.invested-card .summary-value {
+    color: var(--color-investments);
+}
+
+.unallocated-card {
     background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(6, 182, 212, 0.05));
 }
 
-.savings-card .summary-value {
+.unallocated-card .summary-value {
     color: var(--color-savings);
+}
+
+.summary-value.negative {
+    color: var(--color-danger);
+}
+
+.save-state {
+    font-size: 0.8rem;
+    font-weight: 600;
+    min-width: 4.5rem;
+    white-space: nowrap;
+}
+
+.save-state.saved {
+    color: var(--color-good);
+}
+
+.save-state.unsaved,
+.save-state.saving {
+    color: var(--color-warning);
+}
+
+.copy-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    border-radius: var(--radius-md);
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+.copy-banner[hidden],
+#copyPrevBtn[hidden] {
+    display: none;
+}
+
+.copy-banner p {
+    margin: 0;
+    color: var(--text-secondary);
 }
 
 .rate-card {
@@ -977,6 +1029,12 @@ body::before {
 
 /* ===== Responsive ===== */
 @media (max-width: 768px) {
+    .header {
+        /* backdrop-filter would trap the fixed sync control inside the header */
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+
     .header-content {
         flex-direction: column;
         align-items: flex-start;
@@ -989,6 +1047,11 @@ body::before {
 
     .month-selector select {
         flex: 1;
+    }
+
+    .copy-banner {
+        flex-direction: column;
+        align-items: stretch;
     }
 
     .input-grid {

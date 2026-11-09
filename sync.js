@@ -65,43 +65,65 @@ const CloudSync = {
         }
     },
 
-    // Prompt for encryption password
-    promptForPassword() {
+    // Prompt for encryption password. Confirm field is only for a first-time setup.
+    async promptForPassword() {
         const modal = document.getElementById('encryptionModal');
-        if (modal) {
-            modal.classList.add('show');
+        const passwordInput = document.getElementById('encryptionPassword');
+        const confirmInput = document.getElementById('encryptionPasswordConfirm');
+        const confirmGroup = document.getElementById('encryptionConfirmGroup');
+        if (passwordInput) passwordInput.value = '';
+        if (confirmInput) confirmInput.value = '';
+        if (confirmGroup) confirmGroup.hidden = false;
+        if (modal) modal.classList.add('show');
+
+        if (!this.user || typeof db === 'undefined' || !db) return;
+        try {
+            const budgetDoc = await db.collection('users').doc(this.user.uid)
+                .collection('data').doc('budget').get();
+            const hasData = budgetDoc.exists && !!budgetDoc.data().encryptedData;
+            if (confirmGroup) confirmGroup.hidden = hasData;
+        } catch (error) {
+            console.error('Could not check cloud data:', error);
         }
     },
 
-    // Set encryption password and start sync
-    async setPassword(password, isNewPassword = false) {
+    // Set encryption password and start sync.
+    // Existing cloud data is verified by decrypting it. A password hash is not stored.
+    async setPassword(password) {
         if (!password || password.length < 6) {
             showToast('Password must be at least 6 characters');
             return false;
         }
 
-        this.encryptionPassword = password;
-        const passwordHash = await CryptoUtils.hashPassword(password);
-
-        // Check if user has existing data with this password
         try {
-            const userDoc = await db.collection('users').doc(this.user.uid).get();
+            const userRef = db.collection('users').doc(this.user.uid);
+            const budgetDoc = await userRef.collection('data').doc('budget').get();
+            const hasData = budgetDoc.exists && !!budgetDoc.data().encryptedData;
 
-            if (userDoc.exists) {
-                const data = userDoc.data();
-                if (data.passwordHash && data.passwordHash !== passwordHash) {
-                    showToast('Wrong encryption password!');
-                    this.encryptionPassword = null;
+            if (!hasData) {
+                const confirmPassword = document.getElementById('encryptionPasswordConfirm')?.value || '';
+                if (password !== confirmPassword) {
+                    showToast('Passwords do not match');
                     return false;
                 }
-                // Password matches, sync data
-                await this.pullFromCloud();
-            } else if (isNewPassword) {
-                // New user, save password hash
-                await db.collection('users').doc(this.user.uid).set({
-                    passwordHash: passwordHash,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
+                const userDoc = await userRef.get();
+                if (!userDoc.exists) {
+                    await userRef.set({
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+                this.encryptionPassword = password;
+            } else {
+                this.encryptionPassword = password;
+                try {
+                    await this.pullFromCloud({ announce: false });
+                } catch (error) {
+                    this.encryptionPassword = null;
+                    this.syncEnabled = false;
+                    this.updateSyncUI('signed-in');
+                    showToast('Wrong encryption password!');
+                    return false;
+                }
             }
 
             this.syncEnabled = true;
@@ -173,11 +195,12 @@ const CloudSync = {
     },
 
     // Pull data from cloud
-    async pullFromCloud() {
+    async pullFromCloud({ announce = true } = {}) {
         if (!this.user || !this.encryptionPassword) {
             return null;
         }
 
+        if (typeof cancelPendingSaves === 'function') cancelPendingSaves();
         this.updateSyncUI('syncing');
 
         try {
@@ -211,7 +234,7 @@ const CloudSync = {
                 updateHistoryList();
             }
 
-            showToast('Data synced from cloud!');
+            if (announce) showToast('Data synced from cloud!');
             return decryptedData;
         } catch (error) {
             console.error('Pull from cloud failed:', error);

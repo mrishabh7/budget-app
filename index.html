@@ -36,12 +36,14 @@
                         <option value="12">December</option>
                     </select>
                     <select id="yearSelect"></select>
-                    <button id="loadDataBtn" class="btn btn-secondary">Load</button>
-                    <button id="saveDataBtn" class="btn btn-primary">Save</button>
-                    <button id="importCsvBtn" class="btn btn-secondary btn-icon" title="Import from CSV">📥</button>
+                    <button id="copyPrevBtn" class="btn btn-secondary" type="button" hidden title="Copy the latest earlier month into this one">Copy</button>
+                    <span id="saveState" class="save-state saved" aria-live="polite">Saved</span>
+                    <button id="saveDataBtn" class="btn btn-primary" type="button">Save</button>
+                    <button id="importCsvBtn" class="btn btn-secondary btn-icon" type="button" title="Import from CSV" aria-label="Import from CSV">📥</button>
                     <input type="file" id="csvFileInput" accept=".csv" style="display:none">
-                    <button id="settingsBtn" class="btn btn-secondary btn-icon" title="Customize Categories">⚙️</button>
-                    <button id="themeToggle" class="theme-toggle" title="Toggle Theme">🌙</button>
+                    <button id="backupBtn" class="btn btn-secondary btn-icon" type="button" title="Download backup" aria-label="Download backup">📤</button>
+                    <button id="settingsBtn" class="btn btn-secondary btn-icon" type="button" title="Customize Categories" aria-label="Customize Categories">⚙️</button>
+                    <button id="themeToggle" class="theme-toggle" type="button" title="Toggle Theme" aria-label="Toggle theme">🌙</button>
                 </div>
                 <!-- Cloud Sync UI -->
                 <div class="sync-container">
@@ -55,6 +57,10 @@
         <main class="main-content">
             <!-- Left Column: Inputs -->
             <div class="input-column">
+                <div id="copyBanner" class="copy-banner" hidden>
+                    <p id="copyBannerText"></p>
+                    <button id="copyBannerBtn" class="btn btn-primary" type="button">Copy previous month</button>
+                </div>
                 <!-- Income Section -->
                 <section class="card income-section">
                     <h2 class="section-title">
@@ -221,9 +227,13 @@
                             <span class="summary-label">Total Expenses</span>
                             <span class="summary-value" id="summaryExpenses">₹0</span>
                         </div>
-                        <div class="summary-card savings-card">
-                            <span class="summary-label">Available to Invest/Save</span>
-                            <span class="summary-value" id="summarySavings">₹0</span>
+                        <div class="summary-card invested-card">
+                            <span class="summary-label">Invested</span>
+                            <span class="summary-value" id="summaryInvested">₹0</span>
+                        </div>
+                        <div class="summary-card unallocated-card">
+                            <span class="summary-label">Unallocated</span>
+                            <span class="summary-value" id="summaryUnallocated">₹0</span>
                         </div>
                         <div class="summary-card rate-card">
                             <span class="summary-label">Savings Rate</span>
@@ -368,7 +378,12 @@
                 <div class="password-input-group">
                     <label for="encryptionPassword">Password (min 6 characters)</label>
                     <input type="password" id="encryptionPassword" placeholder="Enter encryption password"
-                        minlength="6">
+                        minlength="6" autocomplete="current-password">
+                </div>
+                <div class="password-input-group" id="encryptionConfirmGroup">
+                    <label for="encryptionPasswordConfirm">Confirm password</label>
+                    <input type="password" id="encryptionPasswordConfirm" placeholder="Re-enter encryption password"
+                        minlength="6" autocomplete="new-password">
                 </div>
                 <div class="password-hint">
                     <strong>⚠️ Important:</strong> If you forget this password, your cloud data cannot be recovered.
@@ -377,7 +392,7 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="CloudSync.closePasswordModal()">Cancel</button>
                 <button class="btn btn-primary"
-                    onclick="CloudSync.setPassword(document.getElementById('encryptionPassword').value, true)">Unlock
+                    onclick="CloudSync.setPassword(document.getElementById('encryptionPassword').value)">Unlock
                     Sync</button>
             </div>
         </div>
@@ -400,11 +415,11 @@
         </div>
     </div>
 
-    <script src="data.js"></script>
+    <script src="data.js?v=2"></script>
     <script src="firebase-config.js"></script>
-    <script src="crypto.js"></script>
-    <script src="sync.js"></script>
-    <script src="app.js?v=6"></script>
+    <script src="crypto.js?v=2"></script>
+    <script src="sync.js?v=2"></script>
+    <script src="app.js?v=7"></script>
 </body>
 
 </html>

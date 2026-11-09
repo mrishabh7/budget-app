@@ -2,18 +2,17 @@
 
 ## Health Thresholds & Feedback Logic
 
-The budget health indicators use **percentage of income** to determine financial health status.
+The budget health indicators use **percentage of income** and the **50:25:25** split. EMIs count inside essentials (needs). Savings counts investments plus any cash still unallocated, and never treats overspending as negative savings.
 
 ### Category Thresholds
 
 | Category | ✅ Good | ⚠️ Warning | ❌ Danger |
 |----------|---------|-----------|----------|
-| **Essentials** | < 50% | 50-60% | > 60% |
-| **EMIs** | < 20% | 20-30% | > 30% |
-| **Non-Essentials** | < 15% | 15-25% | > 25% |
-| **Savings** | > 20% | 10-20% | < 10% |
+| **Essentials (including EMIs)** | ≤ 50% | > 50% and ≤ 60% | > 60% |
+| **Non-Essentials** | ≤ 25% | > 25% and ≤ 30% | > 30% |
+| **Savings / investments** | ≥ 25% | ≥ 15% and < 25% | < 15% |
 
-> **Note:** These thresholds add up to 85% max for expenses, leaving at least 15% for savings in a "green" scenario.
+> **Note:** Needs stay at or under half of income, wants at or under a quarter, and the last quarter is investments plus leftover cash.
 
 ---
 
@@ -42,18 +41,20 @@ The budget health indicators use **percentage of income** to determine financial
 ### Totals
 ```
 Total Income = Your Income + Partner's Income
-Total Expenses = Essentials + EMIs + Non-Essentials
-Savings = Total Income - Total Expenses
-Savings Rate = (Savings / Total Income) × 100
+Living Expenses = Essentials + EMIs + Non-Essentials
+Invested = Investments total
+Unallocated = Total Income - Living Expenses - Invested
+Savings Rate = ((Total Income - Living Expenses) / Total Income) × 100
 Net Worth = Total Assets - Total Liabilities
 ```
 
+Unallocated is cash left after living expenses and investments. It can be negative when the month spends or invests more than income. The savings rate still uses living expenses only, so money already invested stays inside the rate.
+
 ### Health Percentages
 ```
-Essentials % = (Essentials Total / Total Income) × 100
-EMIs % = (EMIs Total / Total Income) × 100
+Essentials % = ((Essentials + EMIs) / Total Income) × 100
 Non-Essentials % = (Non-Essentials Total / Total Income) × 100
-Savings % = (Savings / Total Income) × 100
+Savings % = ((Investments + max(0, Unallocated)) / Total Income) × 100
 ```
 
 ---
@@ -120,17 +121,21 @@ Savings % = (Savings / Total Income) × 100
 ## Data Storage
 
 - Data is stored in **localStorage** with key format: `budget_YYYY_MM`
+- Edits autosave to the open month after a short pause. Switching months flushes the month you are leaving.
 - Custom categories saved as: `budget_custom_categories`
+- CSV category mappings saved as: `budget_csv_mapping`
 - Theme preference saved as: `budget_theme`
+- **Download backup** exports saved months, custom categories, and CSV mappings as JSON
+- Only `budget_YYYY_MM` keys are listed under Saved Months
 
 ---
 
-## Ideal Budget Distribution (50-30-20 Rule)
+## Ideal Budget Distribution (50:25:25)
 
 | Category | Ideal % |
 |----------|---------|
 | Needs (Essentials + EMIs) | 50% |
-| Wants (Non-Essentials) | 30% |
-| Savings & Investments | 20% |
+| Wants (Non-Essentials) | 25% |
+| Savings & Investments | 25% |
 
-This app uses a more granular version for better tracking.
+Health turns warning above 60% of income for needs and above 30% for wants. Savings turns warning below 25% and danger below 15%.

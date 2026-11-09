@@ -42,6 +42,16 @@ const CryptoUtils = {
         return crypto.getRandomValues(new Uint8Array(12));
     },
 
+    // Encode bytes as base64 without spreading the whole buffer at once
+    bytesToBase64(bytes) {
+        const chunkSize = 0x8000;
+        let binary = '';
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+        }
+        return btoa(binary);
+    },
+
     // Encrypt data with password
     async encrypt(data, password) {
         const encoder = new TextEncoder();
@@ -63,8 +73,9 @@ const CryptoUtils = {
         combined.set(iv, salt.length);
         combined.set(new Uint8Array(encryptedBuffer), salt.length + iv.length);
 
-        // Return as base64 string for storage
-        return btoa(String.fromCharCode(...combined));
+        // Return as base64 string for storage. Chunk so large payloads
+        // don't exceed the argument limit of Function.prototype.apply.
+        return this.bytesToBase64(combined);
     },
 
     // Decrypt data with password
