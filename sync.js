@@ -18,6 +18,7 @@ const CloudSync = {
 
         initializeFirebase();
         try {
+            // Finish a redirect that was already in progress. New sign-ins use a popup.
             await auth.getRedirectResult();
         } catch (error) {
             console.error('Redirect sign-in error:', error);
@@ -50,23 +51,11 @@ const CloudSync = {
         });
     },
 
-    // Phones and installed PWAs often block popups. Desktop falls back to redirect
-    // only when the popup cannot open.
-    prefersRedirectSignIn() {
-        const coarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-        const standalone = window.matchMedia &&
-            (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true);
-        if (typeof BudgetLogic !== 'undefined') {
-            return BudgetLogic.prefersRedirectSignIn({
-                userAgent: navigator.userAgent,
-                coarsePointer,
-                standalone
-            });
-        }
-        return !!(coarsePointer || standalone);
-    },
-
-    // Sign in with Google
+    // Sign in with Google.
+    // This site is on GitHub Pages, so the Firebase helper lives on another
+    // domain. A full-page redirect cannot read that helper once the browser
+    // partitions storage, which is why phones were coming back signed out.
+    // The popup stays on this page and still works there.
     async signIn() {
         if (!isFirebaseConfigured()) {
             showToast('Firebase not configured. Check firebase-config.js');
@@ -75,26 +64,14 @@ const CloudSync = {
 
         const provider = new firebase.auth.GoogleAuthProvider();
         try {
-            if (this.prefersRedirectSignIn()) {
-                await auth.signInWithRedirect(provider);
-                return;
-            }
             await auth.signInWithPopup(provider);
         } catch (error) {
-            const redirectCodes = [
-                'auth/popup-blocked',
-                'auth/operation-not-supported-in-this-environment',
-                'auth/cancelled-popup-request'
-            ];
-            if (redirectCodes.indexOf(error.code) !== -1) {
-                try {
-                    await auth.signInWithRedirect(provider);
-                    return;
-                } catch (redirectError) {
-                    console.error('Redirect sign-in error:', redirectError);
-                    showToast('Sign-in failed: ' + redirectError.message);
-                    return;
-                }
+            if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
+                showToast('The sign-in window was blocked. Allow popups for this site and try again.');
+                return;
+            }
+            if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+                return;
             }
             console.error('Sign-in error:', error);
             showToast('Sign-in failed: ' + error.message);

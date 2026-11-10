@@ -154,7 +154,7 @@ Mark **Repeats** on income or any line that should come back next month. An empt
 
 **Download backup** is still the full JSON copy. Cloud pull removes local months that are no longer in the cloud snapshot.
 
-The encryption password uses PBKDF2-SHA256. New cloud backups use 600,000 iterations. Backups written earlier keep working at 100,000 iterations. The open tab remembers the password until sign out or until the tab closes. Phones and an installed copy sign in with a redirect; desktop uses a popup and falls back to redirect if the popup is blocked.
+The encryption password uses PBKDF2-SHA256. New cloud backups use 600,000 iterations. Backups written earlier keep working at 100,000 iterations. The open tab remembers the password until sign out or until the tab closes. Google sign-in opens a popup on every device. A full-page redirect cannot finish from GitHub Pages, because the browser will not share the Firebase helper’s storage with this site. If the popup is blocked, allow popups for the site and try again.
 
 Install the planner from the browser to use it as an app. Firestore rules in `firestore.rules` allow each signed-in user to read and write only their own `users/{uid}` documents. Deploy them with `firebase deploy --only firestore:rules`.
 

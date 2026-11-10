@@ -1,4 +1,4 @@
-const CACHE = 'budget-planner-v8';
+const CACHE = 'budget-planner-v9';
 const PRECACHE = [
     './',
     './index.html',
@@ -33,9 +33,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const request = event.request;
     if (request.method !== 'GET') return;
+    // Google sign-in returns through a full page load. A worker that answers
+    // that navigation drops the result, so the browser handles navigations.
+    if (request.mode === 'navigate') return;
 
     const url = new URL(request.url);
     if (url.origin !== self.location.origin) return;
+    if (url.pathname.includes('/__/')) return;
 
     event.respondWith(
         fetch(request)

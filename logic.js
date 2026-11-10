@@ -234,12 +234,6 @@
         return rows;
     }
 
-    function prefersRedirectSignIn(hints) {
-        const options = hints || {};
-        if (options.coarsePointer || options.standalone) return true;
-        return /Android|iPhone|iPad|iPod|Mobile/i.test(options.userAgent || '');
-    }
-
     return {
         PBKDF2_ITERATIONS,
         LEGACY_PBKDF2_ITERATIONS,
@@ -257,7 +251,6 @@
         trendSeries,
         csvCell,
         toCsv,
-        monthExportRows,
-        prefersRedirectSignIn
+        monthExportRows
     };
 });
