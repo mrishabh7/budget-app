@@ -346,6 +346,11 @@ body::before {
     background: rgba(255, 255, 255, 0.02);
 }
 
+.section-header:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+}
+
 .section-header .section-title {
     margin-bottom: 0;
 }
@@ -378,7 +383,7 @@ body::before {
 }
 
 .section-content {
-    max-height: 1000px;
+    max-height: 4000px;
     overflow: hidden;
     transition: max-height var(--transition-slow), opacity var(--transition-normal);
     padding-top: 20px;
@@ -640,8 +645,23 @@ body::before {
 }
 
 .copy-banner[hidden],
-#copyPrevBtn[hidden] {
+#copyPrevBtn[hidden],
+#applyRecurringBtn[hidden],
+#migrationBanner[hidden],
+.trends-chart[hidden],
+.trends-empty[hidden] {
     display: none;
+}
+
+.copy-banner-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.migration-banner {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.4);
 }
 
 .copy-banner p {
@@ -1573,6 +1593,174 @@ input[type="number"]::-webkit-inner-spin-button {
     outline: none;
     border-color: var(--accent-primary);
     box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.recurring-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.recurring-toggle input {
+    accent-color: var(--accent-primary);
+}
+
+.password-field {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.password-field input {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+}
+
+.password-toggle {
+    flex-shrink: 0;
+    padding: 10px 12px;
+}
+
+.history-open {
+    flex: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.history-open:focus-visible,
+.history-delete:focus-visible,
+.password-toggle:focus-visible,
+.modal-close:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.trends-empty,
+.trends-note {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.trends-note {
+    margin-top: 12px;
+}
+
+.trend-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    min-height: 140px;
+    overflow-x: auto;
+}
+
+.trend-col {
+    flex: 1 0 52px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 52px;
+}
+
+.trend-bar-track {
+    width: 100%;
+    height: 88px;
+    display: flex;
+    align-items: flex-end;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.trend-bar {
+    width: 100%;
+    background: var(--accent-gradient);
+}
+
+.trend-value,
+.trend-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.trend-value.negative {
+    color: var(--color-danger);
+}
+
+.trends-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 14px;
+    font-size: 0.85rem;
+}
+
+.trends-table th,
+.trends-table td {
+    text-align: right;
+    padding: 6px 4px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.trends-table th:first-child,
+.trends-table td:first-child {
+    text-align: left;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.csv-import-mode {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.csv-import-mode legend {
+    padding: 0 6px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.csv-import-mode label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+    .copy-banner-actions {
+        flex-wrap: wrap;
+    }
 }
 
 @media (max-width: 600px) {

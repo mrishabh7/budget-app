@@ -102,11 +102,13 @@ Savings % = ((Investments + max(0, Unallocated)) / Total Income) × 100
 ### 🏆 Assets
 - Real Estate (House, Land)
 - Car
-- Cash, Bank, FDs & Liquid Funds
+- Cash & bank
 - Stocks, MFs, Gold
 - NPS, PF, etc.
-- FD/RDs
+- FDs & RDs
 - Other Assets
+
+Cash and bank balances are separate from FDs and RDs, so a deposit is entered on only one line. Older months that used “Cash, Bank, FDs & Liquid Funds” keep that amount on Cash & bank. If that month also had an FD/RDs amount, both numbers are kept and a note asks you to remove a deposit that was entered twice.
 
 ### 💳 Liabilities
 - Home Loan
@@ -139,3 +141,21 @@ Savings % = ((Investments + max(0, Unallocated)) / Total Income) × 100
 | Savings & Investments | 25% |
 
 Health turns warning above 60% of income for needs and above 30% for wants. Savings turns warning below 25% and danger below 15%.
+
+---
+
+## Trends, repeating items, and files
+
+Saved months appear as a savings-rate chart and a table of needs, wants, and invested amounts. The chart keeps the latest 12 months.
+
+Mark **Repeats** on income or any line that should come back next month. An empty month can apply just those items from the latest earlier month, or copy the whole month.
+
+**CSV** downloads every saved month. Import still groups by REF. Choose **Replace** to overwrite a mapped line with the CSV total, or **Add** to stack that total on the amount already in the month. Refs that map to the same line are summed first.
+
+**Download backup** is still the full JSON copy. Cloud pull removes local months that are no longer in the cloud snapshot.
+
+The encryption password uses PBKDF2-SHA256. New cloud backups use 600,000 iterations. Backups written earlier keep working at 100,000 iterations. The open tab remembers the password until sign out or until the tab closes. Phones and an installed copy sign in with a redirect; desktop uses a popup and falls back to redirect if the popup is blocked.
+
+Install the planner from the browser to use it as an app. Firestore rules in `firestore.rules` allow each signed-in user to read and write only their own `users/{uid}` documents. Deploy them with `firebase deploy --only firestore:rules`.
+
+`node --test` runs the calculation, migration, CSV, crypto, and rules checks.

@@ -2,13 +2,29 @@
 // Uses Web Crypto API for AES-256-GCM encryption
 // Password never leaves the browser
 
+const PBKDF2_ITERATIONS = 600000;
+const LEGACY_PBKDF2_ITERATIONS = 100000;
+
+function activePbkdf2Iterations() {
+    if (typeof BudgetLogic !== 'undefined' && BudgetLogic.PBKDF2_ITERATIONS) {
+        return BudgetLogic.PBKDF2_ITERATIONS;
+    }
+    return PBKDF2_ITERATIONS;
+}
+
+function legacyPbkdf2Iterations() {
+    if (typeof BudgetLogic !== 'undefined' && BudgetLogic.LEGACY_PBKDF2_ITERATIONS) {
+        return BudgetLogic.LEGACY_PBKDF2_ITERATIONS;
+    }
+    return LEGACY_PBKDF2_ITERATIONS;
+}
+
 const CryptoUtils = {
     // Derive a key from password using PBKDF2
-    async deriveKey(password, salt) {
+    async deriveKey(password, salt, iterations) {
         const encoder = new TextEncoder();
         const passwordBuffer = encoder.encode(password);
 
-        // Import password as key material
         const keyMaterial = await crypto.subtle.importKey(
             'raw',
             passwordBuffer,
@@ -17,12 +33,11 @@ const CryptoUtils = {
             ['deriveKey']
         );
 
-        // Derive AES key using PBKDF2
         return await crypto.subtle.deriveKey(
             {
                 name: 'PBKDF2',
                 salt: salt,
-                iterations: 100000,
+                iterations: iterations || legacyPbkdf2Iterations(),
                 hash: 'SHA-256'
             },
             keyMaterial,
@@ -32,17 +47,14 @@ const CryptoUtils = {
         );
     },
 
-    // Generate a random salt
     generateSalt() {
         return crypto.getRandomValues(new Uint8Array(16));
     },
 
-    // Generate a random IV for AES-GCM
     generateIV() {
         return crypto.getRandomValues(new Uint8Array(12));
     },
 
-    // Encode bytes as base64 without spreading the whole buffer at once
     bytesToBase64(bytes) {
         const chunkSize = 0x8000;
         let binary = '';
@@ -52,14 +64,12 @@ const CryptoUtils = {
         return btoa(binary);
     },
 
-    // Encrypt data with password
-    async encrypt(data, password) {
+    async encryptRaw(data, password, iterations) {
         const encoder = new TextEncoder();
         const dataBuffer = encoder.encode(JSON.stringify(data));
-
         const salt = this.generateSalt();
         const iv = this.generateIV();
-        const key = await this.deriveKey(password, salt);
+        const key = await this.deriveKey(password, salt, iterations);
 
         const encryptedBuffer = await crypto.subtle.encrypt(
             { name: 'AES-GCM', iv: iv },
@@ -67,31 +77,43 @@ const CryptoUtils = {
             dataBuffer
         );
 
-        // Combine salt + iv + encrypted data
         const combined = new Uint8Array(salt.length + iv.length + encryptedBuffer.byteLength);
         combined.set(salt, 0);
         combined.set(iv, salt.length);
         combined.set(new Uint8Array(encryptedBuffer), salt.length + iv.length);
-
-        // Return as base64 string for storage. Chunk so large payloads
-        // don't exceed the argument limit of Function.prototype.apply.
         return this.bytesToBase64(combined);
     },
 
-    // Decrypt data with password
+    // New payloads record the iteration count. Older payloads stay raw base64
+    // and decrypt with the original 100,000 iterations.
+    async encrypt(data, password) {
+        const iterations = activePbkdf2Iterations();
+        const payload = await this.encryptRaw(data, password, iterations);
+        return JSON.stringify({ v: 2, iterations, data: payload });
+    },
+
+    async encryptLegacy(data, password) {
+        return this.encryptRaw(data, password, legacyPbkdf2Iterations());
+    },
+
     async decrypt(encryptedBase64, password) {
         try {
-            // Decode base64
+            let payload = encryptedBase64;
+            let iterations = legacyPbkdf2Iterations();
+            if (typeof encryptedBase64 === 'string' && encryptedBase64.trim().startsWith('{')) {
+                const envelope = JSON.parse(encryptedBase64);
+                payload = envelope.data;
+                iterations = envelope.iterations || activePbkdf2Iterations();
+            }
+
             const combined = new Uint8Array(
-                atob(encryptedBase64).split('').map(c => c.charCodeAt(0))
+                atob(payload).split('').map(c => c.charCodeAt(0))
             );
 
-            // Extract salt, iv, and encrypted data
             const salt = combined.slice(0, 16);
             const iv = combined.slice(16, 28);
             const encryptedData = combined.slice(28);
-
-            const key = await this.deriveKey(password, salt);
+            const key = await this.deriveKey(password, salt, iterations);
 
             const decryptedBuffer = await crypto.subtle.decrypt(
                 { name: 'AES-GCM', iv: iv },
@@ -105,14 +127,9 @@ const CryptoUtils = {
             console.error('Decryption failed:', error);
             throw new Error('Decryption failed. Wrong password?');
         }
-    },
-
-    // Hash password for verification (not for encryption)
-    async hashPassword(password) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(password + '_budget_app_salt');
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     }
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { CryptoUtils, PBKDF2_ITERATIONS, LEGACY_PBKDF2_ITERATIONS };
+}

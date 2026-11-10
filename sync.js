@@ -3,12 +3,13 @@
 
 const CloudSync = {
     user: null,
+    hadSignedInUser: false,
     encryptionPassword: null,
     syncEnabled: false,
     lastSyncTime: null,
 
     // Initialize sync module
-    init() {
+    async init() {
         if (!isFirebaseConfigured()) {
             console.log('Firebase not configured. Cloud sync disabled.');
             this.updateSyncUI('not-configured');
@@ -16,6 +17,12 @@ const CloudSync = {
         }
 
         initializeFirebase();
+        try {
+            await auth.getRedirectResult();
+        } catch (error) {
+            console.error('Redirect sign-in error:', error);
+            if (typeof showToast === 'function') showToast('Sign-in failed: ' + error.message);
+        }
         this.setupAuthListener();
         this.updateSyncUI('signed-out');
     },
@@ -26,15 +33,37 @@ const CloudSync = {
             this.user = user;
             if (user) {
                 console.log('User signed in:', user.email);
+                this.hadSignedInUser = true;
                 this.updateSyncUI('signed-in');
                 this.promptForPassword();
             } else {
                 console.log('User signed out');
                 this.encryptionPassword = null;
                 this.syncEnabled = false;
+                // The first callback is often a signed-out placeholder before
+                // Firebase restores the session. Only forget the password after
+                // a real user was present.
+                if (this.hadSignedInUser) this.clearSessionPassword();
+                this.hadSignedInUser = false;
                 this.updateSyncUI('signed-out');
             }
         });
+    },
+
+    // Phones and installed PWAs often block popups. Desktop falls back to redirect
+    // only when the popup cannot open.
+    prefersRedirectSignIn() {
+        const coarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+        const standalone = window.matchMedia &&
+            (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true);
+        if (typeof BudgetLogic !== 'undefined') {
+            return BudgetLogic.prefersRedirectSignIn({
+                userAgent: navigator.userAgent,
+                coarsePointer,
+                standalone
+            });
+        }
+        return !!(coarsePointer || standalone);
     },
 
     // Sign in with Google
@@ -44,12 +73,58 @@ const CloudSync = {
             return;
         }
 
+        const provider = new firebase.auth.GoogleAuthProvider();
         try {
-            const provider = new firebase.auth.GoogleAuthProvider();
+            if (this.prefersRedirectSignIn()) {
+                await auth.signInWithRedirect(provider);
+                return;
+            }
             await auth.signInWithPopup(provider);
         } catch (error) {
+            const redirectCodes = [
+                'auth/popup-blocked',
+                'auth/operation-not-supported-in-this-environment',
+                'auth/cancelled-popup-request'
+            ];
+            if (redirectCodes.indexOf(error.code) !== -1) {
+                try {
+                    await auth.signInWithRedirect(provider);
+                    return;
+                } catch (redirectError) {
+                    console.error('Redirect sign-in error:', redirectError);
+                    showToast('Sign-in failed: ' + redirectError.message);
+                    return;
+                }
+            }
             console.error('Sign-in error:', error);
             showToast('Sign-in failed: ' + error.message);
+        }
+    },
+
+    readSessionPassword() {
+        try {
+            const key = typeof BudgetLogic !== 'undefined' ? BudgetLogic.SESSION_PASSWORD_KEY : 'budget_session_password';
+            return sessionStorage.getItem(key) || '';
+        } catch (error) {
+            return '';
+        }
+    },
+
+    rememberSessionPassword(password) {
+        try {
+            const key = typeof BudgetLogic !== 'undefined' ? BudgetLogic.SESSION_PASSWORD_KEY : 'budget_session_password';
+            sessionStorage.setItem(key, password);
+        } catch (error) {
+            console.error('Could not remember encryption password for this tab:', error);
+        }
+    },
+
+    clearSessionPassword() {
+        try {
+            const key = typeof BudgetLogic !== 'undefined' ? BudgetLogic.SESSION_PASSWORD_KEY : 'budget_session_password';
+            sessionStorage.removeItem(key);
+        } catch (error) {
+            // sessionStorage can be blocked; sign-out still clears the in-memory password.
         }
     },
 
@@ -59,14 +134,14 @@ const CloudSync = {
             await auth.signOut();
             this.encryptionPassword = null;
             this.syncEnabled = false;
+            this.clearSessionPassword();
             showToast('Signed out successfully');
         } catch (error) {
             console.error('Sign-out error:', error);
         }
     },
 
-    // Prompt for encryption password. Confirm field is only for a first-time setup.
-    async promptForPassword() {
+    openPasswordModal() {
         const modal = document.getElementById('encryptionModal');
         const passwordInput = document.getElementById('encryptionPassword');
         const confirmInput = document.getElementById('encryptionPasswordConfirm');
@@ -75,6 +150,18 @@ const CloudSync = {
         if (confirmInput) confirmInput.value = '';
         if (confirmGroup) confirmGroup.hidden = false;
         if (modal) modal.classList.add('show');
+        return { confirmGroup };
+    },
+
+    // Prompt for encryption password. Confirm field is only for a first-time setup.
+    async promptForPassword() {
+        const saved = this.readSessionPassword();
+        if (saved && saved.length >= 6) {
+            const unlocked = await this.setPassword(saved, { fromSession: true });
+            if (unlocked) return;
+            this.clearSessionPassword();
+        }
+        const { confirmGroup } = this.openPasswordModal();
 
         if (!this.user || typeof db === 'undefined' || !db) return;
         try {
@@ -89,9 +176,10 @@ const CloudSync = {
 
     // Set encryption password and start sync.
     // Existing cloud data is verified by decrypting it. A password hash is not stored.
-    async setPassword(password) {
+    async setPassword(password, options) {
+        const fromSession = !!(options && options.fromSession);
         if (!password || password.length < 6) {
-            showToast('Password must be at least 6 characters');
+            if (!fromSession) showToast('Password must be at least 6 characters');
             return false;
         }
 
@@ -101,10 +189,12 @@ const CloudSync = {
             const hasData = budgetDoc.exists && !!budgetDoc.data().encryptedData;
 
             if (!hasData) {
-                const confirmPassword = document.getElementById('encryptionPasswordConfirm')?.value || '';
-                if (password !== confirmPassword) {
-                    showToast('Passwords do not match');
-                    return false;
+                if (!fromSession) {
+                    const confirmPassword = document.getElementById('encryptionPasswordConfirm')?.value || '';
+                    if (password !== confirmPassword) {
+                        showToast('Passwords do not match');
+                        return false;
+                    }
                 }
                 const userDoc = await userRef.get();
                 if (!userDoc.exists) {
@@ -121,15 +211,16 @@ const CloudSync = {
                     this.encryptionPassword = null;
                     this.syncEnabled = false;
                     this.updateSyncUI('signed-in');
-                    showToast('Wrong encryption password!');
+                    if (!fromSession) showToast('Wrong encryption password!');
                     return false;
                 }
             }
 
             this.syncEnabled = true;
+            this.rememberSessionPassword(password);
             this.closePasswordModal();
             this.updateSyncUI('synced');
-            showToast('Cloud sync enabled!');
+            if (!fromSession) showToast('Cloud sync enabled!');
             return true;
         } catch (error) {
             console.error('Password verification error:', error);
@@ -215,12 +306,30 @@ const CloudSync = {
 
             const { encryptedData } = doc.data();
             const decryptedData = await CryptoUtils.decrypt(encryptedData, this.encryptionPassword);
+            if (!decryptedData || typeof decryptedData !== 'object' || Array.isArray(decryptedData)) {
+                throw new Error('Cloud backup was not a budget snapshot');
+            }
 
-            // Restore to localStorage
+            // Cloud is the snapshot for saved months. Drop local months that
+            // were deleted on another device. Settings keys stay unless the
+            // snapshot itself overwrites them. An empty payload does not wipe
+            // this device.
+            const localKeys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                localKeys.push(localStorage.key(i));
+            }
+            if (typeof BudgetLogic !== 'undefined' && Object.keys(decryptedData).length > 0) {
+                BudgetLogic.orphanMonthKeys(localKeys, decryptedData).forEach(key => {
+                    localStorage.removeItem(key);
+                });
+            }
+
             Object.keys(decryptedData).forEach(key => {
                 const value = decryptedData[key];
                 localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
             });
+
+            if (typeof migrateStoredBudgets === 'function') migrateStoredBudgets();
 
             this.lastSyncTime = new Date();
             this.updateSyncUI('synced');
@@ -228,10 +337,12 @@ const CloudSync = {
             // Reload the current view
             if (typeof tryLoadCurrentMonth === 'function') {
                 loadCustomCategories();
+                if (typeof migrateStoredBudgets === 'function') migrateStoredBudgets();
                 generateInputFields();
                 attachCategoryInputListeners();
                 tryLoadCurrentMonth();
                 updateHistoryList();
+                if (typeof showFdOverlapBanner === 'function') showFdOverlapBanner();
             }
 
             if (announce) showToast('Data synced from cloud!');
@@ -291,6 +402,7 @@ const CloudSync = {
                 syncStatus.className = 'sync-status error';
                 break;
         }
+        syncBtn.setAttribute('aria-label', syncBtn.textContent.replace(/\s+/g, ' ').trim());
     },
 
     // Show sync menu

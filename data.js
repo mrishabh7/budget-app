@@ -65,10 +65,10 @@ const CATEGORIES = {
         items: {
             realEstate: { label: 'Real Estate (House, Land)', default: 0 },
             car: { label: 'Car', default: 0 },
-            cashBankFd: { label: 'Cash, Bank, FDs & Liquid Funds', default: 0 },
+            cashBank: { label: 'Cash & bank', default: 0 },
             stocksMfsGold: { label: 'Stocks, MFs, Gold', default: 0 },
             npsPf: { label: 'NPS, PF, etc.', default: 0 },
-            fdRds: { label: 'FD/RDs', default: 0 },
+            fdRds: { label: 'FDs & RDs', default: 0 },
             otherAssets: { label: 'Other Assets', default: 0 }
         }
     },
