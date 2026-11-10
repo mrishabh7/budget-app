@@ -136,12 +136,6 @@ test('trend series is chronological and export rows quote commas', () => {
     assert.match(csv, /"say ""hi"", please"/);
 });
 
-test('phones and installed apps use redirect sign-in', () => {
-    assert.equal(logic.prefersRedirectSignIn({ userAgent: 'Mozilla/5.0 (iPhone)' }), true);
-    assert.equal(logic.prefersRedirectSignIn({ coarsePointer: true, userAgent: 'desktop' }), true);
-    assert.equal(logic.prefersRedirectSignIn({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }), false);
-});
-
 test('install and rules files keep the published boundaries', () => {
     const root = path.join(__dirname, '..');
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
@@ -151,7 +145,12 @@ test('install and rules files keep the published boundaries', () => {
 
     const worker = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
     assert.match(worker, /request\.method !== 'GET'/);
-    assert.match(worker, /budget-planner-v8/);
+    assert.match(worker, /request\.mode === 'navigate'/);
+    assert.match(worker, /budget-planner-v9/);
+
+    const sync = fs.readFileSync(path.join(root, 'sync.js'), 'utf8');
+    assert.match(sync, /signInWithPopup/);
+    assert.equal(sync.includes('signInWithRedirect'), false);
 
     const rules = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8');
     assert.match(rules, /request\.auth != null && request\.auth\.uid == userId/);

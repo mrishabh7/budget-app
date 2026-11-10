@@ -395,6 +395,28 @@ body::before {
     padding-top: 0;
 }
 
+.category-section.no-collapse-animate .section-content {
+    transition: none;
+}
+
+.section-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 16px;
+}
+
+.section-tools .btn {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+}
+
+.section-tools .btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+    transform: none;
+    box-shadow: none;
+}
+
 /* ===== Input Grid ===== */
 .input-grid {
     display: grid;
