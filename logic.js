@@ -38,6 +38,8 @@
         const unallocated = income - living - investments;
         const needsPct = income > 0 ? ((essentials + emis) / income) * 100 : 0;
         const wantsPct = income > 0 ? (nonEssentials / income) * 100 : 0;
+        const investedPct = income > 0 ? (investments / income) * 100 : 0;
+        const cashLeftPct = income > 0 ? (unallocated / income) * 100 : 0;
         const wealthPct = income > 0 ? ((investments + Math.max(0, unallocated)) / income) * 100 : 0;
         return {
             income,
@@ -52,6 +54,8 @@
             unallocated,
             needsPct,
             wantsPct,
+            investedPct,
+            cashLeftPct,
             wealthPct,
             netWorth: assets - liabilities
         };

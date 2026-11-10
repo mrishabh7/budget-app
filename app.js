@@ -940,48 +940,83 @@ function updateTrends() {
 
     empty.hidden = true;
     chart.hidden = false;
-    const peak = Math.max(100, ...visible.map(point => point.income > 0 ? point.savingsRate : 0));
+    const scale = Math.max(100, ...visible.map(point => {
+        if (point.income <= 0) return 0;
+        return Math.max(point.investedPct, Math.abs(point.cashLeftPct));
+    }));
+    const pct = (value) => pointText(value);
     bars.innerHTML = visible.map(point => {
-        const height = point.income > 0 ? Math.max(0, point.savingsRate) / peak * 100 : 0;
-        const rateLabel = point.income > 0 ? `${point.savingsRate.toFixed(0)}%` : '—';
-        const title = point.income > 0
-            ? `${getMonthName(point.month)} ${point.year}: savings ${point.savingsRate.toFixed(1)}%, needs ${point.needsPct.toFixed(1)}%, wants ${point.wantsPct.toFixed(1)}%`
+        const hasIncome = point.income > 0;
+        const invested = hasIncome ? point.investedPct : 0;
+        const cash = hasIncome ? point.cashLeftPct : 0;
+        const title = hasIncome
+            ? `${getMonthName(point.month)} ${point.year}: invested ${point.investedPct.toFixed(1)}% of income, cash left ${point.cashLeftPct.toFixed(1)}% of income`
             : `${getMonthName(point.month)} ${point.year}: enter income to compare this month`;
+        const cashUp = Math.max(cash, 0);
+        const cashDown = Math.max(-cash, 0);
+        const upGap = Math.max(scale - invested - cashUp, 0);
+        const downGap = Math.max(scale - cashDown, 0);
         return `
             <div class="trend-col">
-                <span class="trend-value${point.savingsRate < 0 ? ' negative' : ''}">${rateLabel}</span>
-                <div class="trend-bar-track" title="${escapeHtml(title)}">
-                    <div class="trend-bar" style="height:${height.toFixed(1)}%"></div>
+                <span class="trend-readout">
+                    <span class="invested">${hasIncome ? pct(invested) : '—'}</span>
+                    <span class="cash${cash < 0 ? ' negative' : ''}">${hasIncome ? pct(cash) : ''}</span>
+                </span>
+                <div class="trend-plot" title="${escapeHtml(title)}">
+                    <div class="trend-half up">
+                        <div class="trend-spacer" style="flex:${upGap.toFixed(2)}"></div>
+                        ${cashUp > 0 ? `<div class="trend-segment cash" style="flex:${cashUp.toFixed(2)}"></div>` : ''}
+                        ${invested > 0 ? `<div class="trend-segment invested" style="flex:${invested.toFixed(2)}"></div>` : ''}
+                    </div>
+                    <div class="trend-axis"></div>
+                    <div class="trend-half down">
+                        ${cashDown > 0 ? `<div class="trend-segment over" style="flex:${cashDown.toFixed(2)}"></div>` : ''}
+                        <div class="trend-spacer" style="flex:${downGap.toFixed(2)}"></div>
+                    </div>
                 </div>
                 <span class="trend-label">${escapeHtml(point.label)}</span>
             </div>`;
     }).join('');
     bars.setAttribute('role', 'img');
     bars.setAttribute('aria-label', visible.map(point => point.income > 0
-        ? `${getMonthName(point.month)} ${point.year} savings ${point.savingsRate.toFixed(1)} percent`
+        ? `${getMonthName(point.month)} ${point.year}: invested ${point.investedPct.toFixed(1)} percent, cash left ${point.cashLeftPct.toFixed(1)} percent`
         : `${getMonthName(point.month)} ${point.year} has no income yet`
     ).join(', '));
 
+    const cell = (label, text, negative) =>
+        `<td data-label="${label}"${negative ? ' class="negative"' : ''}>${text}</td>`;
     table.innerHTML = `
-        <caption class="sr-only">Savings rate, needs, wants, and amount invested by month</caption>
+        <caption class="sr-only">Invested and cash left as a percentage of income, with needs and wants</caption>
         <thead>
-            <tr><th>Month</th><th>Savings</th><th>Needs</th><th>Wants</th><th>Invested</th></tr>
+            <tr><th>Month</th><th>Invested</th><th>Cash left</th><th>Needs</th><th>Wants</th></tr>
         </thead>
         <tbody>
-            ${visible.map(point => `
+            ${visible.map(point => {
+                const hasIncome = point.income > 0;
+                return `
                 <tr>
-                    <td>${escapeHtml(getMonthName(point.month))} ${escapeHtml(point.year)}</td>
-                    <td>${point.income > 0 ? point.savingsRate.toFixed(1) + '%' : '—'}</td>
-                    <td>${point.income > 0 ? point.needsPct.toFixed(1) + '%' : '—'}</td>
-                    <td>${point.income > 0 ? point.wantsPct.toFixed(1) + '%' : '—'}</td>
-                    <td>${formatCurrency(point.investments)}</td>
-                </tr>`).join('')}
+                    <td data-label="Month">${escapeHtml(point.label)}</td>
+                    ${cell('Invested', hasIncome ? pct(point.investedPct) : '—', false)}
+                    ${cell('Cash left', hasIncome ? pct(point.cashLeftPct) : '—', hasIncome && point.cashLeftPct < 0)}
+                    ${cell('Needs', hasIncome ? pct(point.needsPct) : '—', false)}
+                    ${cell('Wants', hasIncome ? pct(point.wantsPct) : '—', false)}
+                </tr>`;
+            }).join('')}
         </tbody>`;
     if (note) {
-        note.textContent = series.length > 12
-            ? 'Showing the latest 12 months. Savings rate is income minus living expenses.'
-            : 'Savings rate is income minus living expenses. Needs includes EMIs.';
+        const shortfall = visible.some(point => point.income > 0 && point.cashLeftPct < 0);
+        const latest = series.length > 12 ? 'Showing the latest 12 months. ' : '';
+        note.textContent = latest +
+            'Each bar splits what you did not spend on living costs into investments and cash still left. Both are a percentage of that month’s income. ' +
+            (shortfall
+                ? 'A red bar is a cash shortfall: that month used more than its income, so the investments came from money saved earlier.'
+                : '');
     }
+}
+
+function pointText(value) {
+    const digits = Math.abs(value) >= 100 ? 0 : 1;
+    return `${value.toFixed(digits)}%`;
 }
 
 // ===== Load History Month =====
