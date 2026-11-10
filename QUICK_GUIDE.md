@@ -146,7 +146,7 @@ Health turns warning above 60% of income for needs and above 30% for wants. Savi
 
 ## Trends, repeating items, and files
 
-Saved months appear as a savings-rate chart and a table of needs, wants, and invested amounts. The chart keeps the latest 12 months.
+Saved months show two parts of the money you did not spend on living costs: investments, and cash still left. Both are a percentage of that month’s income. The chart keeps the latest 12 months. On a phone, the header scrolls with the page.
 
 Mark **Repeats** on income or any line that should come back next month. An empty month can apply just those items from the latest earlier month, or copy the whole month.
 

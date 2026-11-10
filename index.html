@@ -3,10 +3,11 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Budget Planner - Personal Finance</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0f">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Budget">
     <link rel="icon" href="icons/icon-192.png">
@@ -359,6 +360,11 @@
                     <p class="trends-empty" id="trendsEmpty">Save at least two months to see how savings, needs, and wants move.</p>
                     <div id="trendsChart" class="trends-chart" hidden>
                         <div class="trend-bars" id="trendsBars"></div>
+                        <ul class="trend-legend">
+                            <li><span class="swatch invested"></span> Invested</li>
+                            <li><span class="swatch cash"></span> Cash left</li>
+                            <li><span class="swatch over"></span> Cash shortfall</li>
+                        </ul>
                         <p class="trends-note" id="trendsNote"></p>
                         <table class="trends-table" id="trendsTable"></table>
                     </div>

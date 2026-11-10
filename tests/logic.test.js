@@ -22,6 +22,8 @@ test('month metrics follow living expenses, investments, and 50:25:25', () => {
     assert.equal(metrics.unallocated, 15000);
     assert.equal(metrics.needsPct, 50);
     assert.equal(metrics.wantsPct, 20);
+    assert.equal(metrics.investedPct, 15);
+    assert.equal(metrics.cashLeftPct, 15);
     assert.equal(metrics.wealthPct, 30);
     assert.equal(metrics.netWorth, 400000);
 });

@@ -1072,14 +1072,39 @@ body::before {
 /* ===== Responsive ===== */
 @media (max-width: 768px) {
     .header {
-        /* backdrop-filter would trap the fixed sync control inside the header */
+        /* A pinned header covered the income fields the way a frozen Excel row does. */
+        position: static;
+        background: var(--bg-primary);
         backdrop-filter: none;
         -webkit-backdrop-filter: none;
+        padding: calc(8px + env(safe-area-inset-top)) 0 8px;
+    }
+
+    body.light-theme .header {
+        background: var(--bg-primary);
+    }
+
+    .app-container {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .main-content {
+        padding-bottom: calc(104px + env(safe-area-inset-bottom));
+    }
+
+    .logo {
+        font-size: 1.25rem;
+    }
+
+    .card {
+        padding: 16px;
     }
 
     .header-content {
         flex-direction: column;
         align-items: flex-start;
+        gap: 10px;
     }
 
     .month-selector {
@@ -1687,33 +1712,126 @@ input[type="number"]::-webkit-inner-spin-button {
     display: flex;
     align-items: flex-end;
     gap: 8px;
-    min-height: 140px;
+    min-height: 168px;
     overflow-x: auto;
 }
 
 .trend-col {
-    flex: 1 0 52px;
+    flex: 1 0 56px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    min-width: 52px;
+    min-width: 56px;
 }
 
-.trend-bar-track {
+.trend-plot {
     width: 100%;
-    height: 88px;
+    height: 120px;
     display: flex;
-    align-items: flex-end;
+    flex-direction: column;
     background: var(--bg-secondary);
     border-radius: 6px;
     overflow: hidden;
 }
 
-.trend-bar {
+.trend-half {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
     width: 100%;
-    background: var(--accent-gradient);
+    min-height: 0;
 }
+
+.trend-half.up {
+    justify-content: flex-end;
+}
+
+.trend-readout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 2rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    line-height: 1.15;
+}
+
+.trend-readout .invested {
+    color: var(--color-investments);
+}
+
+.trend-readout .cash {
+    color: var(--color-savings);
+}
+
+.trend-readout .cash.negative {
+    color: var(--color-danger);
+}
+
+.trend-half.down {
+    justify-content: flex-start;
+}
+
+.trend-axis {
+    height: 1px;
+    flex: none;
+    background: var(--border-color);
+}
+
+.trend-stack {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 2px;
+}
+
+.trend-segment,
+.trend-spacer {
+    width: 100%;
+    min-height: 0;
+}
+
+.trend-segment.cash {
+    background: var(--color-savings);
+}
+
+.trend-segment.invested {
+    background: var(--color-investments);
+}
+
+.trend-segment.over {
+    background: var(--color-danger);
+}
+
+.trend-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.trend-legend li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex: none;
+}
+
+.swatch.cash { background: var(--color-savings); }
+.swatch.invested { background: var(--color-investments); }
+.swatch.over { background: var(--color-danger); }
 
 .trend-value,
 .trend-label {
@@ -1743,6 +1861,11 @@ input[type="number"]::-webkit-inner-spin-button {
 .trends-table th:first-child,
 .trends-table td:first-child {
     text-align: left;
+}
+
+.trends-table td.negative {
+    color: var(--color-danger);
+    font-weight: 600;
 }
 
 .sr-only {
@@ -1782,6 +1905,49 @@ input[type="number"]::-webkit-inner-spin-button {
 @media (max-width: 768px) {
     .copy-banner-actions {
         flex-wrap: wrap;
+    }
+
+    .trends-table thead {
+        display: none;
+    }
+
+    .trends-table,
+    .trends-table tbody,
+    .trends-table tr,
+    .trends-table td {
+        display: block;
+        width: auto;
+    }
+
+    .trends-table tr {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .trends-table td {
+        border: 0;
+        padding: 0;
+        text-align: left;
+    }
+
+    .trends-table td[data-label="Month"] {
+        grid-column: 1 / -1;
+        font-weight: 600;
+    }
+
+    .trends-table td::before {
+        content: attr(data-label);
+        display: block;
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        font-weight: 500;
+    }
+
+    .trends-table td[data-label="Month"]::before {
+        content: none;
     }
 }
 
