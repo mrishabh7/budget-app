@@ -5,6 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Budget Planner - Personal Finance</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0a0a0f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Budget">
+    <link rel="icon" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="stylesheet" href="styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
@@ -42,6 +48,7 @@
                     <button id="importCsvBtn" class="btn btn-secondary btn-icon" type="button" title="Import from CSV" aria-label="Import from CSV">📥</button>
                     <input type="file" id="csvFileInput" accept=".csv" style="display:none">
                     <button id="backupBtn" class="btn btn-secondary btn-icon" type="button" title="Download backup" aria-label="Download backup">📤</button>
+                    <button id="exportCsvBtn" class="btn btn-secondary" type="button" title="Export months as CSV">CSV</button>
                     <button id="settingsBtn" class="btn btn-secondary btn-icon" type="button" title="Customize Categories" aria-label="Customize Categories">⚙️</button>
                     <button id="themeToggle" class="theme-toggle" type="button" title="Toggle Theme" aria-label="Toggle theme">🌙</button>
                 </div>
@@ -57,9 +64,16 @@
         <main class="main-content">
             <!-- Left Column: Inputs -->
             <div class="input-column">
+                <div id="migrationBanner" class="copy-banner migration-banner" hidden>
+                    <p>Some saved months had both “Cash, Bank, FDs &amp; Liquid Funds” and “FD/RDs”. Those amounts are now kept as Cash &amp; bank and FDs &amp; RDs. If the same deposit was entered on both lines, remove it from one of them.</p>
+                    <button id="dismissMigrationBtn" class="btn btn-secondary" type="button">Dismiss</button>
+                </div>
                 <div id="copyBanner" class="copy-banner" hidden>
                     <p id="copyBannerText"></p>
-                    <button id="copyBannerBtn" class="btn btn-primary" type="button">Copy previous month</button>
+                    <div class="copy-banner-actions">
+                        <button id="applyRecurringBtn" class="btn btn-secondary" type="button" hidden>Apply repeating items</button>
+                        <button id="copyBannerBtn" class="btn btn-primary" type="button">Copy previous month</button>
+                    </div>
                 </div>
                 <!-- Income Section -->
                 <section class="card income-section">
@@ -74,6 +88,10 @@
                                 <span class="currency">₹</span>
                                 <input type="number" id="myIncome" placeholder="0" min="0">
                             </div>
+                            <label class="recurring-toggle">
+                                <input type="checkbox" class="recurring-checkbox" data-recurring="income.myIncome" aria-label="Your income repeats every month">
+                                <span>Repeats</span>
+                            </label>
                         </div>
                         <div class="income-input-group">
                             <label for="partnerIncome">Partner's Income</label>
@@ -81,6 +99,10 @@
                                 <span class="currency">₹</span>
                                 <input type="number" id="partnerIncome" placeholder="0" min="0">
                             </div>
+                            <label class="recurring-toggle">
+                                <input type="checkbox" class="recurring-checkbox" data-recurring="income.partnerIncome" aria-label="Partner's income repeats every month">
+                                <span>Repeats</span>
+                            </label>
                         </div>
                     </div>
                     <div class="income-total">
@@ -91,7 +113,7 @@
 
                 <!-- Essentials Section -->
                 <section class="card category-section" data-category="essentials">
-                    <div class="section-header" onclick="toggleSection('essentials')">
+                    <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="essentials-content">
                         <h2 class="section-title">
                             <span class="icon">🏠</span>
                             Essentials
@@ -111,7 +133,7 @@
 
                 <!-- EMIs Section -->
                 <section class="card category-section" data-category="emis">
-                    <div class="section-header" onclick="toggleSection('emis')">
+                    <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="emis-content">
                         <h2 class="section-title">
                             <span class="icon">🏦</span>
                             EMIs
@@ -131,7 +153,7 @@
 
                 <!-- Non-Essentials Section -->
                 <section class="card category-section" data-category="nonEssentials">
-                    <div class="section-header" onclick="toggleSection('nonEssentials')">
+                    <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="nonEssentials-content">
                         <h2 class="section-title">
                             <span class="icon">🛍️</span>
                             Non-Essentials
@@ -151,7 +173,7 @@
 
                 <!-- Investments Section -->
                 <section class="card category-section" data-category="investments">
-                    <div class="section-header" onclick="toggleSection('investments')">
+                    <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="investments-content">
                         <h2 class="section-title">
                             <span class="icon">📈</span>
                             Investments
@@ -171,7 +193,7 @@
 
                 <!-- Assets Section -->
                 <section class="card category-section" data-category="assets">
-                    <div class="section-header" onclick="toggleSection('assets')">
+                    <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="assets-content">
                         <h2 class="section-title">
                             <span class="icon">🏆</span>
                             Assets
@@ -191,7 +213,7 @@
 
                 <!-- Liabilities Section -->
                 <section class="card category-section" data-category="liabilities">
-                    <div class="section-header" onclick="toggleSection('liabilities')">
+                    <div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="liabilities-content">
                         <h2 class="section-title">
                             <span class="icon">💳</span>
                             Liabilities
@@ -324,6 +346,20 @@
                     </div>
                 </section>
 
+                <!-- Trends -->
+                <section class="card trends-section">
+                    <h2 class="section-title">
+                        <span class="icon">📉</span>
+                        Trends
+                    </h2>
+                    <p class="trends-empty" id="trendsEmpty">Save at least two months to see how savings, needs, and wants move.</p>
+                    <div id="trendsChart" class="trends-chart" hidden>
+                        <div class="trend-bars" id="trendsBars"></div>
+                        <p class="trends-note" id="trendsNote"></p>
+                        <table class="trends-table" id="trendsTable"></table>
+                    </div>
+                </section>
+
                 <!-- History -->
                 <section class="card history-section">
                     <h2 class="section-title">
@@ -348,7 +384,7 @@
         <div class="modal">
             <div class="modal-header">
                 <h3 class="modal-title">⚙️ Customize Categories</h3>
-                <button class="modal-close" onclick="closeCategoryModal()">&times;</button>
+                <button class="modal-close" type="button" onclick="closeCategoryModal()" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="tabs" id="categoryTabs">
@@ -370,20 +406,30 @@
         <div class="modal modal-small">
             <div class="modal-header">
                 <h3 class="modal-title">🔐 Encryption Password</h3>
-                <button class="modal-close" onclick="CloudSync.closePasswordModal()">&times;</button>
+                <button class="modal-close" type="button" onclick="CloudSync.closePasswordModal()" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
                 <p class="encryption-info">Your data is encrypted with this password before syncing to the cloud. Use
-                    the same password on all devices.</p>
+                    the same password on all devices. This tab remembers it until you sign out or close the tab.</p>
                 <div class="password-input-group">
                     <label for="encryptionPassword">Password (min 6 characters)</label>
-                    <input type="password" id="encryptionPassword" placeholder="Enter encryption password"
-                        minlength="6" autocomplete="current-password">
+                    <div class="password-field">
+                        <input type="password" id="encryptionPassword" placeholder="Enter encryption password"
+                            minlength="6" autocomplete="current-password">
+                        <button type="button" class="btn btn-secondary password-toggle" aria-pressed="false"
+                            aria-label="Show password"
+                            onclick="togglePasswordVisibility('encryptionPassword', this)">Show</button>
+                    </div>
                 </div>
                 <div class="password-input-group" id="encryptionConfirmGroup">
                     <label for="encryptionPasswordConfirm">Confirm password</label>
-                    <input type="password" id="encryptionPasswordConfirm" placeholder="Re-enter encryption password"
-                        minlength="6" autocomplete="new-password">
+                    <div class="password-field">
+                        <input type="password" id="encryptionPasswordConfirm" placeholder="Re-enter encryption password"
+                            minlength="6" autocomplete="new-password">
+                        <button type="button" class="btn btn-secondary password-toggle" aria-pressed="false"
+                            aria-label="Show password"
+                            onclick="togglePasswordVisibility('encryptionPasswordConfirm', this)">Show</button>
+                    </div>
                 </div>
                 <div class="password-hint">
                     <strong>⚠️ Important:</strong> If you forget this password, your cloud data cannot be recovered.
@@ -403,7 +449,7 @@
         <div class="modal modal-wide">
             <div class="modal-header">
                 <h3 class="modal-title">📥 Import Expenses from CSV</h3>
-                <button class="modal-close" onclick="closeCsvModal()">&times;</button>
+                <button class="modal-close" type="button" onclick="closeCsvModal()" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body" id="csvModalBody">
                 <!-- Generated by JS -->
@@ -415,11 +461,12 @@
         </div>
     </div>
 
-    <script src="data.js?v=2"></script>
+    <script src="logic.js?v=8"></script>
+    <script src="data.js?v=8"></script>
     <script src="firebase-config.js"></script>
-    <script src="crypto.js?v=2"></script>
-    <script src="sync.js?v=2"></script>
-    <script src="app.js?v=7"></script>
+    <script src="crypto.js?v=8"></script>
+    <script src="sync.js?v=8"></script>
+    <script src="app.js?v=8"></script>
 </body>
 
 </html>

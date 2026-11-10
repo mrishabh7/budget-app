@@ -143,6 +143,8 @@ document.addEventListener('DOMContentLoaded', () => {
     attachEventListeners();
     updateHistoryList();
     tryLoadCurrentMonth();
+    showFdOverlapBanner();
+    registerServiceWorker();
 });
 
 // ===== Year Selector =====
@@ -175,6 +177,8 @@ function generateInputFields() {
         Object.keys(category.items).forEach(itemKey => {
             const item = category.items[itemKey];
             const hasNote = !!(currentData.notes && currentData.notes[categoryKey] && currentData.notes[categoryKey][itemKey]);
+            const recurringPath = `${categoryKey}.${itemKey}`;
+            const repeats = !!loadRecurring()[recurringPath];
             const inputItem = document.createElement('div');
             inputItem.className = 'input-item';
             inputItem.innerHTML = `
@@ -191,12 +195,18 @@ function generateInputFields() {
                            data-item="${itemKey}"
                            placeholder="0"
                            min="0"
-                           value="${currentData[categoryKey][itemKey] || 0}">
+                           value="${currentData[categoryKey] && currentData[categoryKey][itemKey] || 0}">
                 </div>
+                <label class="recurring-toggle">
+                    <input type="checkbox" class="recurring-checkbox" data-recurring="${escapeHtml(recurringPath)}"
+                           ${repeats ? 'checked' : ''} aria-label="${escapeHtml(item.label)} repeats every month">
+                    <span>Repeats</span>
+                </label>
             `;
             container.appendChild(inputItem);
         });
     });
+    refreshRecurringControls();
 }
 
 // ===== Note Indicator =====
@@ -333,6 +343,7 @@ function attachEventListeners() {
         input.addEventListener('input', (e) => {
             const category = e.target.dataset.category;
             const item = e.target.dataset.item;
+            if (!category || !item || !currentData[category]) return;
             currentData[category][item] = parseFloat(e.target.value) || 0;
             updateCalculations();
             markDirty();
@@ -352,7 +363,13 @@ function attachEventListeners() {
 
     document.getElementById('copyPrevBtn').addEventListener('click', copyPreviousMonth);
     document.getElementById('copyBannerBtn').addEventListener('click', copyPreviousMonth);
+    document.getElementById('applyRecurringBtn').addEventListener('click', applyRecurringFromPrevious);
     document.getElementById('backupBtn').addEventListener('click', downloadBackup);
+    document.getElementById('exportCsvBtn').addEventListener('click', downloadMonthCsv);
+    document.getElementById('dismissMigrationBtn').addEventListener('click', dismissFdOverlapBanner);
+    document.body.addEventListener('click', handleSectionHeaderClick);
+    document.body.addEventListener('keydown', handleSectionHeaderKeydown);
+    document.body.addEventListener('change', handleRecurringChange);
 
     window.addEventListener('beforeunload', () => {
         if (!openPeriod.year || !isDirty()) return;
@@ -383,10 +400,63 @@ function handleLabelKeydown(e) {
 
 // ===== Toggle Section =====
 function toggleSection(categoryKey) {
-    const section = document.querySelector(`[data-category="${categoryKey}"]`);
-    if (section) {
-        section.classList.toggle('collapsed');
+    const section = document.querySelector(`section[data-category="${categoryKey}"]`);
+    if (!section) return;
+    const collapsed = section.classList.toggle('collapsed');
+    const header = section.querySelector('.section-header');
+    if (header) header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+}
+
+function handleSectionHeaderClick(event) {
+    const header = event.target.closest('.section-header');
+    if (!header) return;
+    const section = header.closest('.category-section');
+    if (section) toggleSection(section.dataset.category);
+}
+
+function handleSectionHeaderKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const header = event.target.closest('.section-header');
+    if (!header || event.target !== header) return;
+    event.preventDefault();
+    const section = header.closest('.category-section');
+    if (section) toggleSection(section.dataset.category);
+}
+
+function loadRecurring() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(BudgetLogic.RECURRING_STORAGE_KEY) || '{}');
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (error) {
+        return {};
     }
+}
+
+function refreshRecurringControls() {
+    const rules = loadRecurring();
+    document.querySelectorAll('.recurring-checkbox').forEach(box => {
+        box.checked = !!rules[box.dataset.recurring];
+    });
+}
+
+function handleRecurringChange(event) {
+    const box = event.target.closest('.recurring-checkbox');
+    if (!box || !box.dataset.recurring) return;
+    const rules = loadRecurring();
+    if (box.checked) rules[box.dataset.recurring] = true;
+    else delete rules[box.dataset.recurring];
+    localStorage.setItem(BudgetLogic.RECURRING_STORAGE_KEY, JSON.stringify(rules));
+    scheduleCloudPush();
+}
+
+function togglePasswordVisibility(inputId, button) {
+    const input = document.getElementById(inputId);
+    if (!input || !button) return;
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    button.textContent = showing ? 'Show' : 'Hide';
+    button.setAttribute('aria-pressed', showing ? 'false' : 'true');
+    button.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
 }
 
 // ===== Income Calculation =====
@@ -468,6 +538,7 @@ function updateCalculations() {
     document.getElementById('networthTotal').textContent = formatCurrency(netWorth);
 
     updateCopyBanner();
+    updateTrends();
 }
 
 // ===== Update Income Allocation Chart =====
@@ -560,6 +631,13 @@ function updateExpenseChart(essentials, nonEssentials, investments, income) {
         </div>`;
     }
     legend.innerHTML = legendHtml;
+    chart.setAttribute('role', 'img');
+    chart.setAttribute('aria-label',
+        `Income allocation. Essentials ${formatCurrency(essentials)}, ${essentialsPercent.toFixed(1)} percent. ` +
+        `Non-essentials ${formatCurrency(nonEssentials)}, ${nonEssentialsPercent.toFixed(1)} percent. ` +
+        `Investments ${formatCurrency(investments)}, ${investmentsPercent.toFixed(1)} percent.` +
+        (usingIncomeDenominator ? ` Residual savings ${formatCurrency(savings)}, ${savingsPercent.toFixed(1)} percent.` : '')
+    );
 
     if (note) {
         note.classList.remove('warning', 'celebrate');
@@ -687,9 +765,11 @@ function saveCurrentData() {
 function applyPeriodData(data) {
     currentData = data || createEmptyBudget();
     if (typeof ensureNotesShape === 'function') ensureNotesShape(currentData);
+    const migrated = BudgetLogic.migrateBudgetRecord(currentData);
+    if (migrated.overlapped) fdOverlapDetected = true;
     const beforePrune = JSON.stringify(currentData);
     pruneUnknownCategoryData(currentData);
-    const pruned = JSON.stringify(currentData) !== beforePrune;
+    const pruned = migrated.changed || JSON.stringify(currentData) !== beforePrune;
     populateFormWithData();
     updateCalculations();
     markClean();
@@ -761,20 +841,108 @@ function updateHistoryList() {
 
     if (savedMonths.length === 0) {
         historyList.innerHTML = '<p class="no-data">No saved data yet</p>';
+        updateTrends();
         return;
     }
 
     historyList.innerHTML = savedMonths.map(({ year, month }) => {
         const data = loadBudgetData(year, month);
-        const income = data ? data.income : 0;
+        const income = data ? BudgetLogic.monthMetrics(data).income : 0;
+        const label = `${getMonthName(month)} ${year}`;
         return `
-            <div class="history-item" onclick="loadHistoryMonth('${year}', '${month}')">
-                <span class="history-month">${getMonthName(month)} ${year}</span>
-                <span class="history-amount">${formatCurrency(income)}</span>
-                <button class="history-delete" onclick="deleteHistoryMonth(event, '${year}', '${month}')" title="Delete">🗑️</button>
+            <div class="history-item">
+                <button type="button" class="history-open" onclick="loadHistoryMonth('${year}', '${month}')">
+                    <span class="history-month">${label}</span>
+                    <span class="history-amount">${formatCurrency(income)}</span>
+                </button>
+                <button type="button" class="history-delete" onclick="deleteHistoryMonth(event, '${year}', '${month}')" aria-label="Delete ${label}">🗑️</button>
             </div>
         `;
     }).join('');
+    updateTrends();
+}
+
+function updateTrends() {
+    const chart = document.getElementById('trendsChart');
+    const empty = document.getElementById('trendsEmpty');
+    const bars = document.getElementById('trendsBars');
+    const table = document.getElementById('trendsTable');
+    const note = document.getElementById('trendsNote');
+    if (!chart || !empty || !bars || !table) return;
+
+    const byKey = new Map();
+    getSavedMonths().forEach(({ year, month }) => {
+        byKey.set(`${year}_${month}`, {
+            year,
+            month,
+            label: `${getMonthName(month).slice(0, 3)} ${String(year).slice(2)}`,
+            data: loadBudgetData(year, month)
+        });
+    });
+    if (openPeriod.year && openPeriod.month) {
+        const key = `${openPeriod.year}_${openPeriod.month}`;
+        if (byKey.has(key) || budgetHasNumbers(currentData)) {
+            byKey.set(key, {
+                year: openPeriod.year,
+                month: openPeriod.month,
+                label: `${getMonthName(openPeriod.month).slice(0, 3)} ${String(openPeriod.year).slice(2)}`,
+                data: currentData
+            });
+        }
+    }
+
+    const series = BudgetLogic.trendSeries(Array.from(byKey.values()));
+    const visible = series.slice(-12);
+    if (visible.length < 2) {
+        empty.hidden = false;
+        chart.hidden = true;
+        return;
+    }
+
+    empty.hidden = true;
+    chart.hidden = false;
+    const peak = Math.max(100, ...visible.map(point => point.income > 0 ? point.savingsRate : 0));
+    bars.innerHTML = visible.map(point => {
+        const height = point.income > 0 ? Math.max(0, point.savingsRate) / peak * 100 : 0;
+        const rateLabel = point.income > 0 ? `${point.savingsRate.toFixed(0)}%` : '—';
+        const title = point.income > 0
+            ? `${getMonthName(point.month)} ${point.year}: savings ${point.savingsRate.toFixed(1)}%, needs ${point.needsPct.toFixed(1)}%, wants ${point.wantsPct.toFixed(1)}%`
+            : `${getMonthName(point.month)} ${point.year}: enter income to compare this month`;
+        return `
+            <div class="trend-col">
+                <span class="trend-value${point.savingsRate < 0 ? ' negative' : ''}">${rateLabel}</span>
+                <div class="trend-bar-track" title="${escapeHtml(title)}">
+                    <div class="trend-bar" style="height:${height.toFixed(1)}%"></div>
+                </div>
+                <span class="trend-label">${escapeHtml(point.label)}</span>
+            </div>`;
+    }).join('');
+    bars.setAttribute('role', 'img');
+    bars.setAttribute('aria-label', visible.map(point => point.income > 0
+        ? `${getMonthName(point.month)} ${point.year} savings ${point.savingsRate.toFixed(1)} percent`
+        : `${getMonthName(point.month)} ${point.year} has no income yet`
+    ).join(', '));
+
+    table.innerHTML = `
+        <caption class="sr-only">Savings rate, needs, wants, and amount invested by month</caption>
+        <thead>
+            <tr><th>Month</th><th>Savings</th><th>Needs</th><th>Wants</th><th>Invested</th></tr>
+        </thead>
+        <tbody>
+            ${visible.map(point => `
+                <tr>
+                    <td>${escapeHtml(getMonthName(point.month))} ${escapeHtml(point.year)}</td>
+                    <td>${point.income > 0 ? point.savingsRate.toFixed(1) + '%' : '—'}</td>
+                    <td>${point.income > 0 ? point.needsPct.toFixed(1) + '%' : '—'}</td>
+                    <td>${point.income > 0 ? point.wantsPct.toFixed(1) + '%' : '—'}</td>
+                    <td>${formatCurrency(point.investments)}</td>
+                </tr>`).join('')}
+        </tbody>`;
+    if (note) {
+        note.textContent = series.length > 12
+            ? 'Showing the latest 12 months. Savings rate is income minus living expenses.'
+            : 'Savings rate is income minus living expenses. Needs includes EMIs.';
+    }
 }
 
 // ===== Load History Month =====
@@ -811,10 +979,52 @@ function updateCopyBanner() {
         : null;
     if (headerBtn) headerBtn.hidden = !prev;
     const showBanner = !!(prev && !budgetHasNumbers(currentData));
+    let recurringCount = 0;
+    if (showBanner) {
+        const source = loadBudgetData(prev.year, prev.month);
+        const draft = createEmptyBudget();
+        recurringCount = source ? BudgetLogic.applyRecurring(draft, source, loadRecurring()).length : 0;
+    }
+    const applyBtn = document.getElementById('applyRecurringBtn');
+    if (applyBtn) applyBtn.hidden = !(showBanner && recurringCount > 0);
     if (banner) banner.hidden = !showBanner;
     if (showBanner && text) {
-        text.textContent = `This month is empty. Copy ${getMonthName(prev.month)} ${prev.year}?`;
+        const sourceLabel = `${getMonthName(prev.month)} ${prev.year}`;
+        text.textContent = recurringCount > 0
+            ? `This month is empty. Apply ${recurringCount} repeating item${recurringCount === 1 ? '' : 's'} from ${sourceLabel}, or copy the whole month.`
+            : `This month is empty. Copy ${sourceLabel}?`;
     }
+}
+
+function applyRecurringFromPrevious() {
+    if (!openPeriod.year || !openPeriod.month) return;
+    const prev = getPreviousSavedMonth(openPeriod.year, openPeriod.month);
+    if (!prev) {
+        showToast('No earlier month to copy');
+        return;
+    }
+    const source = loadBudgetData(prev.year, prev.month);
+    if (!source) {
+        showToast('Could not read the previous month');
+        return;
+    }
+    if (budgetHasContent(currentData)) {
+        const replace = confirm(`Replace repeating items in ${getMonthName(openPeriod.month)} ${openPeriod.year}?`);
+        if (!replace) return;
+    }
+
+    const next = createEmptyBudget();
+    const applied = BudgetLogic.applyRecurring(next, source, loadRecurring());
+    if (!applied.length) {
+        showToast('No repeating amounts in the previous month');
+        return;
+    }
+    currentData = next;
+    populateFormWithData();
+    updateCalculations();
+    markDirty();
+    const sourceLabel = `${getMonthName(prev.month)} ${prev.year}`;
+    showToast(`Applied ${applied.length} repeating item${applied.length === 1 ? '' : 's'} from ${sourceLabel}`);
 }
 
 function copyPreviousMonth() {
@@ -897,6 +1107,36 @@ function downloadBackup() {
     showToast('Backup downloaded');
 }
 
+function downloadMonthCsv() {
+    if (isDirty()) persistOpenMonth({ pushCloud: false });
+
+    const rows = [['Month', 'Category', 'Item', 'Amount', 'Note', 'Repeats']];
+    const rules = loadRecurring();
+    const periods = getSavedMonths().slice().reverse();
+    const openSaved = periods.some(period => period.year === openPeriod.year && period.month === openPeriod.month);
+    if (openPeriod.year && openPeriod.month && !openSaved && budgetHasContent(currentData)) {
+        periods.push({ year: openPeriod.year, month: openPeriod.month });
+        periods.sort((a, b) => (`${a.year}${a.month}`).localeCompare(`${b.year}${b.month}`));
+    }
+    periods.forEach(({ year, month }) => {
+        const isOpen = openPeriod.year === year && openPeriod.month === month;
+        const data = isOpen ? currentData : loadBudgetData(year, month);
+        const label = `${getMonthName(month)} ${year}`;
+        BudgetLogic.monthExportRows(label, data, CATEGORIES, rules).forEach(row => rows.push(row));
+    });
+
+    const blob = new Blob([`\uFEFF${BudgetLogic.toCsv(rows)}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `budget-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('CSV downloaded');
+}
+
 // ===== Toast Notification =====
 function showToast(message) {
     const toast = document.getElementById('toast');
@@ -912,18 +1152,25 @@ function showToast(message) {
 const themeToggle = document.getElementById('themeToggle');
 const THEME_KEY = 'budget_theme';
 
+function updateThemeToggleLabel() {
+    const isLight = document.body.classList.contains('light-theme');
+    themeToggle.setAttribute('aria-label', isLight ? 'Switch to dark theme' : 'Switch to light theme');
+}
+
 function initializeTheme() {
     const savedTheme = localStorage.getItem(THEME_KEY);
     if (savedTheme === 'light') {
         document.body.classList.add('light-theme');
         themeToggle.textContent = '☀️';
     }
+    updateThemeToggleLabel();
 }
 
 function toggleTheme() {
     const isLight = document.body.classList.toggle('light-theme');
     themeToggle.textContent = isLight ? '☀️' : '🌙';
     localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark');
+    updateThemeToggleLabel();
 }
 
 themeToggle.addEventListener('click', toggleTheme);
@@ -995,11 +1242,12 @@ function renderCategoryItems(categoryKey) {
                 ${Object.keys(category.items).map(itemKey => `
                     <div class="category-item" data-key="${escapeHtml(itemKey)}">
                         <input type="text" value="${escapeHtml(category.items[itemKey].label)}"
+                               aria-label="Label for ${escapeHtml(category.items[itemKey].label)}"
                                onchange="updateCategoryItem('${safeCategory}', '${escapeHtml(itemKey)}', this.value)">
                         <div class="category-item-actions">
                             <button class="category-item-btn delete" type="button"
                                     onclick="deleteCategoryItem('${safeCategory}', '${escapeHtml(itemKey)}')"
-                                    title="Delete">🗑️</button>
+                                    aria-label="Delete ${escapeHtml(category.items[itemKey].label)}">🗑️</button>
                         </div>
                     </div>
                 `).join('')}
@@ -1079,6 +1327,20 @@ function saveCategories() {
     });
 
     pruneUnknownCategoryData(currentData);
+    const rules = loadRecurring();
+    let rulesChanged = false;
+    Object.keys(rules).forEach(path => {
+        if (path === 'income.myIncome' || path === 'income.partnerIncome') return;
+        const dot = path.indexOf('.');
+        if (dot === -1) return;
+        const catKey = path.slice(0, dot);
+        const itemKey = path.slice(dot + 1);
+        if (!CATEGORIES[catKey] || !CATEGORIES[catKey].items[itemKey]) {
+            delete rules[path];
+            rulesChanged = true;
+        }
+    });
+    if (rulesChanged) localStorage.setItem(BudgetLogic.RECURRING_STORAGE_KEY, JSON.stringify(rules));
     updateCalculations();
     if (isDirty()) persistOpenMonth({ pushCloud: false });
     pushCloudNow();
@@ -1092,11 +1354,10 @@ function attachCategoryInputListeners() {
         input.addEventListener('input', (e) => {
             const category = e.target.dataset.category;
             const item = e.target.dataset.item;
-            if (category && item) {
-                currentData[category][item] = parseFloat(e.target.value) || 0;
-                updateCalculations();
-                markDirty();
-            }
+            if (!category || !item || !currentData[category]) return;
+            currentData[category][item] = parseFloat(e.target.value) || 0;
+            updateCalculations();
+            markDirty();
         });
     });
 }
@@ -1121,11 +1382,57 @@ function loadCustomCategories() {
 // Call loadCustomCategories before generating input fields
 loadCustomCategories();
 
+let fdOverlapDetected = false;
+
+function migrateStoredBudgets() {
+    const categoryResult = BudgetLogic.migrateCategoryDefinitions(CATEGORIES);
+    if (categoryResult.changed) {
+        localStorage.setItem('budget_custom_categories', JSON.stringify(CATEGORIES));
+    }
+    getSavedMonths().forEach(({ year, month }) => {
+        const raw = localStorage.getItem(getStorageKey(year, month));
+        if (!raw) return;
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (error) {
+            return;
+        }
+        const result = BudgetLogic.migrateBudgetRecord(data);
+        if (result.overlapped) fdOverlapDetected = true;
+        if (result.changed) saveBudgetData(year, month, data);
+    });
+}
+
+function showFdOverlapBanner() {
+    const banner = document.getElementById('migrationBanner');
+    if (!banner) return;
+    const acknowledged = localStorage.getItem(BudgetLogic.FD_OVERLAP_ACK_KEY) === '1';
+    banner.hidden = !(fdOverlapDetected && !acknowledged);
+}
+
+function dismissFdOverlapBanner() {
+    localStorage.setItem(BudgetLogic.FD_OVERLAP_ACK_KEY, '1');
+    const banner = document.getElementById('migrationBanner');
+    if (banner) banner.hidden = true;
+    scheduleCloudPush();
+}
+
+function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('./sw.js').catch((error) => {
+        console.error('Service worker registration failed:', error);
+    });
+}
+
+migrateStoredBudgets();
+
 // ===== CSV Import =====
 const CSV_MAPPING_KEY = 'budget_csv_mapping';
 let csvImportGroups = {};
 let csvRefKeys = [];
 let csvCurrentMappings = {};
+let csvImportMode = 'replace';
 
 function parseCSVLine(line) {
     const result = [];
@@ -1273,7 +1580,13 @@ function renderCsvMappingRows() {
     const unmapped = csvRefKeys.filter(k => !savedMapping[k]);
     const mapped = csvRefKeys.filter(k => !!savedMapping[k]);
 
-    let html = `<p class="csv-summary">Found <strong>${csvRefKeys.length}</strong> expense ${csvRefKeys.length === 1 ? 'category' : 'categories'} in your CSV. Map each to a budget field.</p>`;
+    let html = `
+        <fieldset class="csv-import-mode">
+            <legend>When a mapped line already has an amount</legend>
+            <label><input type="radio" name="csvImportMode" value="replace" ${csvImportMode === 'replace' ? 'checked' : ''} onchange="onCsvModeChange('replace')"> Replace with the CSV total</label>
+            <label><input type="radio" name="csvImportMode" value="add" ${csvImportMode === 'add' ? 'checked' : ''} onchange="onCsvModeChange('add')"> Add the CSV total</label>
+        </fieldset>
+        <p class="csv-summary">Found <strong>${csvRefKeys.length}</strong> expense ${csvRefKeys.length === 1 ? 'category' : 'categories'} in your CSV. Map each to a budget field.</p>`;
 
     if (unmapped.length > 0) {
         html += `<div class="csv-section-label csv-unmapped-label">⚠️ New categories (not in saved mapping)</div>`;
@@ -1290,6 +1603,10 @@ function renderCsvMappingRows() {
     }
 
     body.innerHTML = html;
+}
+
+function onCsvModeChange(mode) {
+    csvImportMode = mode === 'add' ? 'add' : 'replace';
 }
 
 function onCsvMappingChange(idx, value) {
@@ -1353,6 +1670,7 @@ function closeCsvModal() {
     csvImportGroups = {};
     csvRefKeys = [];
     csvCurrentMappings = {};
+    csvImportMode = 'replace';
 }
 
 function applyCsvImport() {
@@ -1404,27 +1722,29 @@ function applyCsvImport() {
     // Step 3: save mapping for future uploads
     saveCsvMapping(mappingToSave);
 
-    // Step 4: apply amounts to currentData and form inputs
+    // Step 4: apply amounts. Refs that share a line are summed first.
+    // Replace writes that sum. Add stacks it on the amount already in the month.
+    const amounts = BudgetLogic.applyCsvAmounts(currentData, resolvedMappings, csvImportGroups, csvImportMode);
     let importedCount = 0;
-    Object.entries(resolvedMappings).forEach(([normalizedRef, mapping]) => {
-        if (mapping === 'skip') return;
-
-        const [catKey, itemKey] = mapping.split('.');
+    Object.entries(amounts).forEach(([mapping, amount]) => {
+        const dot = mapping.indexOf('.');
+        const catKey = mapping.slice(0, dot);
+        const itemKey = mapping.slice(dot + 1);
         if (!catKey || !itemKey || !currentData[catKey]) return;
 
-        const amount = csvImportGroups[normalizedRef]?.total || 0;
         currentData[catKey][itemKey] = amount;
-
         const input = document.getElementById(`${catKey}_${itemKey}`);
         if (input) input.value = amount || '';
-
         importedCount++;
     });
 
     updateCalculations();
     persistOpenMonth({ pushCloud: true });
+    const added = csvImportMode === 'add';
     closeCsvModal();
-    showToast(`Imported ${importedCount} expense ${importedCount === 1 ? 'category' : 'categories'} from CSV`);
+    showToast(added
+        ? `Added CSV totals onto ${importedCount} line${importedCount === 1 ? '' : 's'}`
+        : `Imported ${importedCount} expense ${importedCount === 1 ? 'category' : 'categories'} from CSV`);
 }
 
 // Wire up CSV import button and file input
