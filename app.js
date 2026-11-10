@@ -367,6 +367,7 @@ function attachEventListeners() {
     document.getElementById('backupBtn').addEventListener('click', downloadBackup);
     document.getElementById('exportCsvBtn').addEventListener('click', downloadMonthCsv);
     document.getElementById('dismissMigrationBtn').addEventListener('click', dismissFdOverlapBanner);
+    document.getElementById('collapseEmptyBtn').addEventListener('click', () => collapseEmptySections());
     document.body.addEventListener('click', handleSectionHeaderClick);
     document.body.addEventListener('keydown', handleSectionHeaderKeydown);
     document.body.addEventListener('change', handleRecurringChange);
@@ -402,9 +403,45 @@ function handleLabelKeydown(e) {
 function toggleSection(categoryKey) {
     const section = document.querySelector(`section[data-category="${categoryKey}"]`);
     if (!section) return;
-    const collapsed = section.classList.toggle('collapsed');
+    setSectionCollapsed(categoryKey, !section.classList.contains('collapsed'));
+}
+
+function setSectionCollapsed(categoryKey, collapsed) {
+    const section = document.querySelector(`section[data-category="${categoryKey}"]`);
+    if (!section) return;
+    section.classList.toggle('collapsed', collapsed);
     const header = section.querySelector('.section-header');
     if (header) header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    updateCollapseEmptyButton();
+}
+
+// A section is empty when every line is zero. Opening a month closes those
+// and leaves sections that have amounts open. The button only closes empty
+// ones, so a section you collapsed on purpose stays collapsed.
+function collapseEmptySections({ expandFilled = false, animate = true } = {}) {
+    const sections = document.querySelectorAll('.category-section');
+    if (!animate) sections.forEach(section => section.classList.add('no-collapse-animate'));
+    Object.keys(CATEGORIES).forEach(categoryKey => {
+        const empty = calculateCategoryTotal(categoryKey) <= 0;
+        if (empty) setSectionCollapsed(categoryKey, true);
+        else if (expandFilled) setSectionCollapsed(categoryKey, false);
+    });
+    if (!animate) {
+        requestAnimationFrame(() => {
+            sections.forEach(section => section.classList.remove('no-collapse-animate'));
+        });
+    }
+    updateCollapseEmptyButton();
+}
+
+function updateCollapseEmptyButton() {
+    const button = document.getElementById('collapseEmptyBtn');
+    if (!button) return;
+    const canCollapse = Object.keys(CATEGORIES).some(categoryKey => {
+        const section = document.querySelector(`section[data-category="${categoryKey}"]`);
+        return section && !section.classList.contains('collapsed') && calculateCategoryTotal(categoryKey) <= 0;
+    });
+    button.disabled = !canCollapse;
 }
 
 function handleSectionHeaderClick(event) {
@@ -539,6 +576,7 @@ function updateCalculations() {
 
     updateCopyBanner();
     updateTrends();
+    updateCollapseEmptyButton();
 }
 
 // ===== Update Income Allocation Chart =====
@@ -772,6 +810,7 @@ function applyPeriodData(data) {
     const pruned = migrated.changed || JSON.stringify(currentData) !== beforePrune;
     populateFormWithData();
     updateCalculations();
+    collapseEmptySections({ expandFilled: true, animate: false });
     markClean();
     // Drop removed line items from storage as soon as the month is opened.
     if (pruned && data && openPeriod.year && openPeriod.month) {
